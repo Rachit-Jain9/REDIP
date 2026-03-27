@@ -5,7 +5,7 @@ INSERT INTO users (id, email, password_hash, name, role, phone) VALUES
 (
     'a1b2c3d4-0000-0000-0000-000000000001',
     'admin@redevint.com',
-    '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj6J3K5Z6vN6',
+    '$2a$12$u3crAgd1C6uhPgV7m38Pp.jBz23vkT5UCTpfblamxh05vkv/135SG',
     'Arjun Sharma',
     'admin',
     '+91-9876543210'
@@ -13,7 +13,7 @@ INSERT INTO users (id, email, password_hash, name, role, phone) VALUES
 (
     'a1b2c3d4-0000-0000-0000-000000000002',
     'analyst@redevint.com',
-    '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj6J3K5Z6vN6',
+    '$2a$12$u3crAgd1C6uhPgV7m38Pp.jBz23vkT5UCTpfblamxh05vkv/135SG',
     'Priya Menon',
     'analyst',
     '+91-9876543211'
@@ -21,7 +21,7 @@ INSERT INTO users (id, email, password_hash, name, role, phone) VALUES
 (
     'a1b2c3d4-0000-0000-0000-000000000003',
     'viewer@redevint.com',
-    '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj6J3K5Z6vN6',
+    '$2a$12$u3crAgd1C6uhPgV7m38Pp.jBz23vkT5UCTpfblamxh05vkv/135SG',
     'Rahul Verma',
     'viewer',
     '+91-9876543212'
