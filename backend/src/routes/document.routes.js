@@ -18,6 +18,16 @@ const handleValidation = (req, res, next) => {
   next();
 };
 
+// GET /documents/deals/options
+router.get('/deals/options', authenticate, async (req, res, next) => {
+  try {
+    const deals = await documentService.getDocumentDealOptions();
+    res.json({ success: true, data: deals });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /documents/:dealId
 router.get(
   '/:dealId',

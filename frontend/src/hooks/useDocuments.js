@@ -2,6 +2,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { documentsAPI } from '../services/api';
 import { toast } from '../components/common/Toast';
 
+export function useDocumentDealOptions() {
+  return useQuery({
+    queryKey: ['documents', 'deal-options'],
+    queryFn: () => documentsAPI.dealOptions().then((r) => r.data.data),
+  });
+}
+
 export function useDocuments(dealId, category) {
   return useQuery({
     queryKey: ['documents', dealId, category],

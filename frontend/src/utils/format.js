@@ -74,13 +74,31 @@ export const formatRelativeTime = (value) => {
  * Stage display config
  */
 export const STAGE_CONFIG = {
+  sourced: { label: 'Sourced', color: 'bg-slate-100 text-slate-700' },
   screening: { label: 'Screening', color: 'bg-gray-100 text-gray-800' },
   site_visit: { label: 'Site Visit', color: 'bg-blue-100 text-blue-800' },
   loi: { label: 'LOI', color: 'bg-yellow-100 text-yellow-800' },
+  due_diligence: { label: 'Due Diligence', color: 'bg-orange-100 text-orange-800' },
   underwriting: { label: 'Underwriting', color: 'bg-purple-100 text-purple-800' },
+  ic_review: { label: 'IC Review', color: 'bg-indigo-100 text-indigo-800' },
+  negotiation: { label: 'Negotiation', color: 'bg-cyan-100 text-cyan-800' },
   active: { label: 'Active', color: 'bg-green-100 text-green-800' },
   closed: { label: 'Closed', color: 'bg-emerald-100 text-emerald-800' },
   dead: { label: 'Dead', color: 'bg-red-100 text-red-800' },
+};
+
+export const STAGE_TRANSITIONS = {
+  sourced: ['screening', 'dead'],
+  screening: ['site_visit', 'sourced', 'dead'],
+  site_visit: ['loi', 'screening', 'dead'],
+  loi: ['due_diligence', 'site_visit', 'dead'],
+  due_diligence: ['underwriting', 'loi', 'dead'],
+  underwriting: ['ic_review', 'due_diligence', 'dead'],
+  ic_review: ['negotiation', 'underwriting', 'dead'],
+  negotiation: ['active', 'ic_review', 'dead'],
+  active: ['closed', 'negotiation', 'dead'],
+  closed: [],
+  dead: ['sourced', 'screening'],
 };
 
 export const PRIORITY_CONFIG = {
@@ -95,4 +113,27 @@ export const DEAL_TYPE_LABELS = {
   jv: 'Joint Venture',
   da: 'Dev Agreement',
   outright: 'Outright',
+};
+
+export const PROPERTY_TYPE_LABELS = {
+  land: 'Land',
+  residential: 'Residential',
+  commercial: 'Commercial',
+  mixed_use: 'Mixed Use',
+  industrial: 'Industrial',
+  office: 'Office',
+  retail: 'Retail',
+  hospitality: 'Hospitality',
+};
+
+export const ACTIVITY_STATUS_CONFIG = {
+  open: { label: 'Open', color: 'bg-amber-100 text-amber-800' },
+  completed: { label: 'Completed', color: 'bg-emerald-100 text-emerald-800' },
+  cancelled: { label: 'Cancelled', color: 'bg-gray-100 text-gray-700' },
+};
+
+export const ACTIVITY_PRIORITY_CONFIG = {
+  low: { label: 'Low', color: 'bg-gray-100 text-gray-700' },
+  medium: { label: 'Medium', color: 'bg-blue-100 text-blue-700' },
+  high: { label: 'High', color: 'bg-red-100 text-red-700' },
 };

@@ -2,6 +2,16 @@ const express = require('express');
 const { body, query: qv, param, validationResult } = require('express-validator');
 const dealService = require('../services/deal.service');
 const { authenticate, requireRole } = require('../middleware/auth');
+const {
+  DEAL_STAGES,
+  DEAL_TYPES,
+  PROPERTY_TYPES,
+  LAND_PRICING_BASES,
+  AREA_UNITS,
+  normalizePropertyType,
+  normalizeAreaUnit,
+  normalizeLandPricingBasis,
+} = require('../constants/domain');
 
 const router = express.Router();
 
@@ -22,13 +32,17 @@ router.get(
   '/',
   authenticate,
   [
-    qv('stage').optional().isIn(['screening', 'site_visit', 'loi', 'underwriting', 'active', 'closed', 'dead']),
-    qv('dealType').optional().isIn(['acquisition', 'jv', 'da', 'outright']),
+    qv('stage').optional().isIn(DEAL_STAGES),
+    qv('dealType').optional().isIn(DEAL_TYPES),
     qv('priority').optional().isIn(['low', 'medium', 'high', 'critical']),
     qv('city').optional().trim(),
+    qv('propertyType').optional().customSanitizer(normalizePropertyType).isIn(PROPERTY_TYPES),
+    qv('includeArchived').optional().isBoolean().toBoolean(),
+    qv('onlyArchived').optional().isBoolean().toBoolean(),
+    qv('liveOnly').optional().isBoolean().toBoolean(),
     qv('search').optional().trim(),
     qv('page').optional().isInt({ min: 1 }),
-    qv('limit').optional().isInt({ min: 1, max: 100 }),
+    qv('limit').optional().isInt({ min: 1, max: 200 }),
   ],
   handleValidation,
   async (req, res, next) => {
@@ -38,8 +52,12 @@ router.get(
         dealType: req.query.dealType,
         assignedTo: req.query.assignedTo,
         city: req.query.city,
+        propertyType: req.query.propertyType,
         search: req.query.search,
         priority: req.query.priority,
+        includeArchived: req.query.includeArchived,
+        onlyArchived: req.query.onlyArchived,
+        liveOnly: req.query.liveOnly,
       };
       const pagination = { page: req.query.page, limit: req.query.limit };
       const result = await dealService.getDeals(filters, pagination);
@@ -76,13 +94,17 @@ router.post(
   authenticate,
   requireRole('admin', 'analyst'),
   [
-    body('propertyId').isUUID().withMessage('Valid property ID is required'),
+    body('propertyId').optional({ nullable: true, checkFalsy: true }).isUUID().withMessage('Valid property ID is required'),
     body('name').trim().notEmpty().withMessage('Deal name is required').isLength({ max: 500 }),
-    body('dealType').isIn(['acquisition', 'jv', 'da', 'outright']).withMessage('Invalid deal type'),
-    body('stage').optional().isIn(['screening', 'site_visit', 'loi', 'underwriting', 'active', 'closed', 'dead']),
+    body('dealType').isIn(DEAL_TYPES).withMessage('Invalid deal type'),
+    body('stage').optional().isIn(DEAL_STAGES),
     body('assignedTo').optional().isUUID(),
     body('priority').optional().isIn(['low', 'medium', 'high', 'critical']),
     body('landAskPriceCr').optional().isFloat({ min: 0 }),
+    body('landPricingBasis').optional().customSanitizer(normalizeLandPricingBasis).isIn(LAND_PRICING_BASES),
+    body('landPriceRateInr').optional().isFloat({ min: 0 }),
+    body('landExtentInputValue').optional().isFloat({ min: 0.01 }),
+    body('landExtentInputUnit').optional().customSanitizer(normalizeAreaUnit).isIn(AREA_UNITS),
     body('negotiatedPriceCr').optional().isFloat({ min: 0 }),
     body('targetLaunchDate').optional().isISO8601(),
     body('expectedCloseDate').optional().isISO8601(),
@@ -114,11 +136,16 @@ router.put(
   authenticate,
   requireRole('admin', 'analyst'),
   [
+    body('propertyId').optional({ nullable: true, checkFalsy: true }).isUUID(),
     body('name').optional().trim().notEmpty().isLength({ max: 500 }),
-    body('dealType').optional().isIn(['acquisition', 'jv', 'da', 'outright']),
+    body('dealType').optional().isIn(DEAL_TYPES),
     body('assignedTo').optional().isUUID(),
     body('priority').optional().isIn(['low', 'medium', 'high', 'critical']),
     body('landAskPriceCr').optional().isFloat({ min: 0 }),
+    body('landPricingBasis').optional().customSanitizer(normalizeLandPricingBasis).isIn(LAND_PRICING_BASES),
+    body('landPriceRateInr').optional().isFloat({ min: 0 }),
+    body('landExtentInputValue').optional().isFloat({ min: 0.01 }),
+    body('landExtentInputUnit').optional().customSanitizer(normalizeAreaUnit).isIn(AREA_UNITS),
     body('negotiatedPriceCr').optional().isFloat({ min: 0 }),
   ],
   handleValidation,
@@ -138,8 +165,7 @@ router.patch(
   authenticate,
   requireRole('admin', 'analyst'),
   [
-    body('stage').isIn(['screening', 'site_visit', 'loi', 'underwriting', 'active', 'closed', 'dead'])
-      .withMessage('Invalid stage'),
+    body('stage').isIn(DEAL_STAGES).withMessage('Invalid stage'),
     body('notes').optional().trim(),
   ],
   handleValidation,
@@ -157,6 +183,28 @@ router.patch(
     }
   }
 );
+
+// PATCH /deals/:id/archive
+router.patch('/:id/archive', authenticate, requireRole('admin', 'analyst'), [
+  body('reason').optional().trim(),
+], handleValidation, async (req, res, next) => {
+  try {
+    const deal = await dealService.archiveDeal(req.params.id, req.user.id, req.body.reason);
+    res.json({ success: true, message: 'Deal archived.', data: deal });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /deals/:id/restore
+router.patch('/:id/restore', authenticate, requireRole('admin', 'analyst'), async (req, res, next) => {
+  try {
+    const deal = await dealService.restoreDeal(req.params.id);
+    res.json({ success: true, message: 'Deal restored.', data: deal });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // DELETE /deals/:id
 router.delete('/:id', authenticate, requireRole('admin'), async (req, res, next) => {

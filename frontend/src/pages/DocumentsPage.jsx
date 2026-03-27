@@ -9,8 +9,7 @@ import {
   File,
   Search,
 } from 'lucide-react';
-import { useDocuments, useUploadDocument, useDeleteDocument } from '../hooks/useDocuments';
-import { useDeals } from '../hooks/useDeals';
+import { useDocumentDealOptions, useDocuments, useUploadDocument, useDeleteDocument } from '../hooks/useDocuments';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import EmptyState from '../components/common/EmptyState';
 import PageHeader from '../components/common/PageHeader';
@@ -51,8 +50,7 @@ export default function DocumentsPage() {
     }
   }, [searchParams, selectedDealId]);
 
-  const { data: dealsData } = useDeals({ limit: 200 });
-  const deals = dealsData?.data || [];
+  const { data: dealOptions = [] } = useDocumentDealOptions();
 
   const { data: documents, isLoading: docsLoading } = useDocuments(selectedDealId);
   const docsList = documents?.documents || [];
@@ -146,13 +144,16 @@ export default function DocumentsPage() {
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
             <option value="">-- Choose a deal --</option>
-            {deals.map((deal) => (
+            {dealOptions.map((deal) => (
               <option key={deal.id} value={deal.id}>
-                {deal.name} {deal.city ? `(${deal.city})` : ''}
+                {deal.name} {deal.city ? `(${deal.city})` : ''} {deal.stage ? `- ${deal.stage.replace(/_/g, ' ')}` : ''}
               </option>
             ))}
           </select>
         </div>
+        <p className="mt-2 text-xs text-gray-500">
+          Live deals are shown first. Archived deals are hidden from this selector until they are restored.
+        </p>
       </div>
 
       {!selectedDealId ? (

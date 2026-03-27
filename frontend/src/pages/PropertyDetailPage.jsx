@@ -7,7 +7,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner';
 import PageHeader from '../components/common/PageHeader';
 import Badge from '../components/common/Badge';
 import EmptyState from '../components/common/EmptyState';
-import { formatArea, formatDate, formatINR, STAGE_CONFIG } from '../utils/format';
+import { formatArea, formatDate, formatINR, PROPERTY_TYPE_LABELS, STAGE_CONFIG } from '../utils/format';
 
 export default function PropertyDetailPage() {
   const { id } = useParams();
@@ -51,8 +51,8 @@ export default function PropertyDetailPage() {
       </button>
 
       <PageHeader
-        title={property.name}
-        description={`${property.city}, ${property.state}`}
+        title={property.display_name || property.name || 'Untitled property'}
+        description={[property.city, property.state].filter(Boolean).join(', ') || 'Location still being completed'}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -60,8 +60,14 @@ export default function PropertyDetailPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Property Overview</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
+              <span className="text-gray-400">Property Type</span>
+              <p className="font-medium text-gray-900 mt-1">
+                {property.property_type ? (PROPERTY_TYPE_LABELS[property.property_type] || property.property_type) : '-'}
+              </p>
+            </div>
+            <div>
               <span className="text-gray-400">Address</span>
-              <p className="font-medium text-gray-900 mt-1">{property.address}</p>
+              <p className="font-medium text-gray-900 mt-1">{property.address || 'Address not captured yet'}</p>
             </div>
             <div>
               <span className="text-gray-400">Zoning</span>
@@ -117,7 +123,7 @@ export default function PropertyDetailPage() {
               <div>
                 <p className="text-xs text-gray-500">Location</p>
                 <p className="text-sm font-medium text-gray-900">
-                  {property.lat && property.lng ? `${property.lat}, ${property.lng}` : 'Not geocoded'}
+                  {property.lat && property.lng ? `${property.lat}, ${property.lng}` : property.geocode_status?.replace(/_/g, ' ') || 'Not geocoded'}
                 </p>
               </div>
             </div>

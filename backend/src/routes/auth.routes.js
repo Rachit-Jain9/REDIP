@@ -21,7 +21,14 @@ const handleValidation = (req, res, next) => {
 router.post(
   '/register',
   [
-    body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 255 }),
+    body(['name', 'fullName']).optional().trim().isLength({ max: 255 }),
+    body().custom((value) => {
+      const resolvedName = value?.name || value?.fullName;
+      if (!resolvedName || !String(resolvedName).trim()) {
+        throw new Error('Name is required');
+      }
+      return true;
+    }),
     body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
     body('password')
       .isLength({ min: 8 })
@@ -34,7 +41,8 @@ router.post(
   handleValidation,
   async (req, res, next) => {
     try {
-      const { name, email, password, role, phone } = req.body;
+      const { email, password, role, phone } = req.body;
+      const name = req.body.name || req.body.fullName;
       const result = await authService.register(name, email, password, role, phone);
       res.status(201).json({
         success: true,
@@ -85,7 +93,7 @@ router.put(
   '/me',
   authenticate,
   [
-    body('name').optional().trim().notEmpty().isLength({ max: 255 }),
+    body(['name', 'fullName']).optional().trim().notEmpty().isLength({ max: 255 }),
     body('phone').optional().trim(),
     body('currentPassword').optional().isLength({ min: 8 }),
     body('newPassword')
@@ -97,7 +105,11 @@ router.put(
   handleValidation,
   async (req, res, next) => {
     try {
-      const updated = await authService.updateUser(req.user.id, req.body);
+      const payload = {
+        ...req.body,
+        name: req.body.name || req.body.fullName,
+      };
+      const updated = await authService.updateUser(req.user.id, payload);
       res.json({ success: true, message: 'Profile updated.', data: updated });
     } catch (error) {
       next(error);

@@ -2,6 +2,13 @@ const express = require('express');
 const { body, query: qv, validationResult } = require('express-validator');
 const propertyService = require('../services/property.service');
 const { authenticate, requireAdminOrAnalyst } = require('../middleware/auth');
+const {
+  PROPERTY_TYPES,
+  ZONING_TYPES,
+  AREA_UNITS,
+  normalizePropertyType,
+  normalizeAreaUnit,
+} = require('../constants/domain');
 
 const router = express.Router();
 
@@ -24,10 +31,12 @@ router.get(
   [
     qv('city').optional().trim(),
     qv('state').optional().trim(),
-    qv('zoning').optional().isIn(['residential', 'commercial', 'mixed_use', 'industrial', 'agricultural']),
+    qv('zoning').optional().isIn(ZONING_TYPES),
+    qv('propertyType').optional().customSanitizer(normalizePropertyType).isIn(PROPERTY_TYPES),
+    qv('geocodeStatus').optional().isIn(['pending', 'matched', 'approximate', 'failed', 'manual', 'insufficient_data']),
     qv('search').optional().trim(),
     qv('page').optional().isInt({ min: 1 }),
-    qv('limit').optional().isInt({ min: 1, max: 100 }),
+    qv('limit').optional().isInt({ min: 1, max: 200 }),
   ],
   handleValidation,
   async (req, res, next) => {
@@ -36,6 +45,8 @@ router.get(
         city: req.query.city,
         state: req.query.state,
         zoning: req.query.zoning,
+        propertyType: req.query.propertyType,
+        geocodeStatus: req.query.geocodeStatus,
         search: req.query.search,
         minArea: req.query.minArea,
         maxArea: req.query.maxArea,
@@ -55,12 +66,15 @@ router.post(
   authenticate,
   requireAdminOrAnalyst,
   [
-    body('name').trim().notEmpty().withMessage('Property name is required').isLength({ max: 500 }),
-    body('address').trim().notEmpty().withMessage('Address is required'),
-    body('city').trim().notEmpty().withMessage('City is required'),
-    body('state').trim().notEmpty().withMessage('State is required'),
-    body('zoning').isIn(['residential', 'commercial', 'mixed_use', 'industrial', 'agricultural']).withMessage('Invalid zoning type'),
-    body('landAreaSqft').optional().isFloat({ min: 1 }).withMessage('Land area must be positive'),
+    body('name').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
+    body('address').optional({ values: 'falsy' }).trim(),
+    body('city').optional({ values: 'falsy' }).trim(),
+    body('state').optional({ values: 'falsy' }).trim(),
+    body('propertyType').optional().customSanitizer(normalizePropertyType).isIn(PROPERTY_TYPES).withMessage('Invalid property type'),
+    body('zoning').optional().isIn(ZONING_TYPES).withMessage('Invalid zoning type'),
+    body('landAreaSqft').optional().isFloat({ min: 0.01 }).withMessage('Land area must be positive'),
+    body('landAreaValue').optional().isFloat({ min: 0.01 }).withMessage('Land area must be positive'),
+    body('landAreaUnit').optional().customSanitizer(normalizeAreaUnit).isIn(AREA_UNITS).withMessage('Invalid land area unit'),
     body('circleRatePerSqft').optional().isFloat({ min: 0 }),
     body('permissibleFsi').optional().isFloat({ min: 0, max: 20 }),
     body('lat').optional().isFloat({ min: -90, max: 90 }),
@@ -93,9 +107,15 @@ router.put(
   authenticate,
   requireAdminOrAnalyst,
   [
-    body('name').optional().trim().notEmpty().isLength({ max: 500 }),
-    body('zoning').optional().isIn(['residential', 'commercial', 'mixed_use', 'industrial', 'agricultural']),
-    body('landAreaSqft').optional().isFloat({ min: 1 }),
+    body('name').optional({ values: 'falsy' }).trim().isLength({ max: 500 }),
+    body('address').optional({ values: 'falsy' }).trim(),
+    body('city').optional({ values: 'falsy' }).trim(),
+    body('state').optional({ values: 'falsy' }).trim(),
+    body('propertyType').optional().customSanitizer(normalizePropertyType).isIn(PROPERTY_TYPES),
+    body('zoning').optional().isIn(ZONING_TYPES),
+    body('landAreaSqft').optional().isFloat({ min: 0.01 }),
+    body('landAreaValue').optional().isFloat({ min: 0.01 }),
+    body('landAreaUnit').optional().customSanitizer(normalizeAreaUnit).isIn(AREA_UNITS),
     body('circleRatePerSqft').optional().isFloat({ min: 0 }),
     body('permissibleFsi').optional().isFloat({ min: 0, max: 20 }),
     body('lat').optional().isFloat({ min: -90, max: 90 }),

@@ -15,13 +15,20 @@ import {
   STAGE_CONFIG,
   PRIORITY_CONFIG,
   DEAL_TYPE_LABELS,
+  PROPERTY_TYPE_LABELS,
 } from '../utils/format';
+import { buildLandPricingPreview } from '../utils/landPricing';
 
 const INITIAL_FORM = {
   propertyId: '',
   name: '',
   dealType: 'acquisition',
+  stage: 'screening',
   priority: 'medium',
+  landPricingBasis: 'total_cr',
+  landPriceRateInr: '',
+  landExtentInputValue: '',
+  landExtentInputUnit: 'sqft',
   landAskPriceCr: '',
   notes: '',
 };
@@ -56,6 +63,15 @@ export default function DealsPage() {
   const deals = data?.data || [];
   const pagination = data?.pagination || { total: 0, page: 1, totalPages: 1 };
   const properties = propertiesData?.data || [];
+  const selectedProperty = properties.find((property) => property.id === form.propertyId);
+  const landPricingPreview = buildLandPricingPreview({
+    pricingBasis: form.landPricingBasis,
+    totalPriceCr: form.landAskPriceCr,
+    rateInr: form.landPriceRateInr,
+    extentValue: form.landExtentInputValue,
+    extentUnit: form.landExtentInputUnit,
+    fallbackAreaSqft: selectedProperty?.land_area_sqft,
+  });
 
   const handleFilterReset = () => {
     setSearch('');
@@ -87,8 +103,13 @@ export default function DealsPage() {
       propertyId: form.propertyId,
       name: form.name,
       dealType: form.dealType,
+      stage: form.stage,
       priority: form.priority,
-      landAskPriceCr: form.landAskPriceCr ? parseFloat(form.landAskPriceCr) : undefined,
+      landPricingBasis: form.landPricingBasis,
+      landPriceRateInr: form.landPriceRateInr ? parseFloat(form.landPriceRateInr) : undefined,
+      landExtentInputValue: form.landExtentInputValue ? parseFloat(form.landExtentInputValue) : undefined,
+      landExtentInputUnit: form.landExtentInputUnit,
+      landAskPriceCr: landPricingPreview.totalPriceCr ?? undefined,
       notes: form.notes || undefined,
     };
     try {
@@ -208,12 +229,17 @@ export default function DealsPage() {
                     <Badge className={stageCfg.color}>{stageCfg.label}</Badge>
                   </div>
 
-                  <p className="text-sm text-gray-600 mb-1">{deal.property_name}</p>
+                  <p className="text-sm text-gray-600 mb-1">{deal.property_name || 'Unlinked property'}</p>
                   <p className="text-xs text-gray-400 mb-3">{deal.city}{deal.state ? `, ${deal.state}` : ''}</p>
 
                   <div className="flex items-center gap-2 mb-3">
                     <Badge className={priorityCfg.color}>{priorityCfg.label}</Badge>
                     <span className="text-xs text-gray-500">{DEAL_TYPE_LABELS[deal.deal_type] || deal.deal_type}</span>
+                    {deal.property_type && (
+                      <span className="text-xs text-gray-500">
+                        {PROPERTY_TYPE_LABELS[deal.property_type] || deal.property_type}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between text-sm border-t pt-3">
@@ -282,21 +308,30 @@ export default function DealsPage() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Property *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Linked Property</label>
                 <select
                   name="propertyId"
                   value={form.propertyId}
                   onChange={handleFormChange}
-                  required
                   className="input w-full"
                 >
-                  <option value="">Select a property</option>
+                  <option value="">Add later / source first</option>
                   {properties.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} &mdash; {p.city}
+                      {(p.display_name || p.name || 'Untitled property')}
+                      {p.city ? ` - ${p.city}` : ''}
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  You can create the deal now and link a property later if sourcing data is still incomplete.
+                </p>
+                {selectedProperty && (
+                  <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    {PROPERTY_TYPE_LABELS[selectedProperty.property_type] || selectedProperty.property_type || 'Property'} in {selectedProperty.city || 'unknown city'}
+                    {selectedProperty.land_area_sqft ? ` · ${Number(selectedProperty.land_area_sqft).toLocaleString('en-IN')} sqft` : ''}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -322,6 +357,14 @@ export default function DealsPage() {
                   </select>
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Stage</label>
+                  <select name="stage" value={form.stage} onChange={handleFormChange} className="input w-full">
+                    {Object.entries(STAGE_CONFIG).map(([key, cfg]) => (
+                      <option key={key} value={key}>{cfg.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
                   <select name="priority" value={form.priority} onChange={handleFormChange} className="input w-full">
                     {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
@@ -331,18 +374,112 @@ export default function DealsPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Land Ask Price (Cr)</label>
-                <input
-                  type="number"
-                  name="landAskPriceCr"
-                  value={form.landAskPriceCr}
-                  onChange={handleFormChange}
-                  step="0.01"
-                  min="0"
-                  placeholder="e.g. 25.50"
-                  className="input w-full"
-                />
+              <div className="rounded-xl border border-gray-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">Land Pricing</h4>
+                    <p className="text-xs text-slate-500">Quote land cost in crore, per acre, or per sqft. REDIP will normalize the total.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Pricing Basis</label>
+                    <select
+                      name="landPricingBasis"
+                      value={form.landPricingBasis}
+                      onChange={handleFormChange}
+                      className="input w-full"
+                    >
+                      <option value="total_cr">Total in Cr</option>
+                      <option value="per_sqft">INR / sqft</option>
+                      <option value="per_acre">INR / acre</option>
+                    </select>
+                  </div>
+
+                  {form.landPricingBasis === 'total_cr' ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Total Land Price (Cr)</label>
+                      <input
+                        type="number"
+                        name="landAskPriceCr"
+                        value={form.landAskPriceCr}
+                        onChange={handleFormChange}
+                        step="0.01"
+                        min="0"
+                        placeholder="e.g. 25.50"
+                        className="input w-full"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {form.landPricingBasis === 'per_acre' ? 'Land Rate (INR / acre)' : 'Land Rate (INR / sqft)'}
+                      </label>
+                      <input
+                        type="number"
+                        name="landPriceRateInr"
+                        value={form.landPriceRateInr}
+                        onChange={handleFormChange}
+                        step="0.01"
+                        min="0"
+                        placeholder={form.landPricingBasis === 'per_acre' ? 'e.g. 250000000' : 'e.g. 12000'}
+                        className="input w-full"
+                      />
+                    </div>
+                  )}
+
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Land Extent for Pricing</label>
+                    <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-3">
+                      <input
+                        type="number"
+                        name="landExtentInputValue"
+                        value={form.landExtentInputValue}
+                        onChange={handleFormChange}
+                        step="0.01"
+                        min="0"
+                        placeholder={selectedProperty?.land_area_sqft ? 'Optional override. Blank uses linked property area.' : 'Enter the deal land extent'}
+                        className="input w-full"
+                      />
+                      <select
+                        name="landExtentInputUnit"
+                        value={form.landExtentInputUnit}
+                        onChange={handleFormChange}
+                        className="input w-full"
+                      >
+                        <option value="sqft">sq ft</option>
+                        <option value="acre">acre</option>
+                      </select>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {selectedProperty?.land_area_sqft
+                        ? `Linked property fallback area: ${Number(selectedProperty.land_area_sqft).toLocaleString('en-IN')} sqft`
+                        : 'If no linked property exists yet, enter the sourcing extent here so total pricing can still be calculated.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="rounded-lg bg-white px-3 py-2">
+                    <p className="text-xs text-gray-500">Normalized area</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {landPricingPreview.areaSqft ? `${landPricingPreview.areaSqft.toLocaleString('en-IN')} sqft` : '-'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-white px-3 py-2">
+                    <p className="text-xs text-gray-500">Equivalent acres</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {landPricingPreview.areaAcres ? landPricingPreview.areaAcres.toFixed(4) : '-'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-slate-900 px-3 py-2 text-white">
+                    <p className="text-xs text-slate-300">Computed total land price</p>
+                    <p className="text-sm font-semibold">
+                      {landPricingPreview.totalPriceCr != null ? `${landPricingPreview.totalPriceCr.toFixed(2)} Cr` : '-'}
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div>

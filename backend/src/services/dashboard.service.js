@@ -1,17 +1,31 @@
 const { query } = require('../config/database');
 
 const getDashboardStats = async (userId) => {
+  const liveStageArray = [
+    'sourced',
+    'screening',
+    'site_visit',
+    'loi',
+    'due_diligence',
+    'underwriting',
+    'ic_review',
+    'negotiation',
+    'active',
+  ];
+
   // Total deals stats
   const dealsStatsResult = await query(
     `SELECT
-      COUNT(*) as total_deals,
-      COUNT(*) FILTER (WHERE d.stage NOT IN ('closed', 'dead')) as active_deals_count,
-      COUNT(*) FILTER (WHERE d.stage = 'closed' AND d.updated_at >= DATE_TRUNC('month', NOW())) as deals_closed_this_month,
-      COUNT(*) FILTER (WHERE d.stage = 'dead') as dead_deals,
-      COALESCE(SUM(f.total_revenue_cr) FILTER (WHERE d.stage NOT IN ('closed', 'dead')), 0) as total_pipeline_value_cr,
-      AVG(f.irr_pct) FILTER (WHERE f.irr_pct IS NOT NULL AND d.stage NOT IN ('dead')) as avg_irr_pct
+      COUNT(*) FILTER (WHERE d.is_archived = FALSE) as total_deals,
+      COUNT(*) FILTER (WHERE d.is_archived = FALSE AND d.stage = ANY($1::deal_stage[])) as active_deals_count,
+      COUNT(*) FILTER (WHERE d.is_archived = FALSE AND d.stage = 'closed' AND d.updated_at >= DATE_TRUNC('month', NOW())) as deals_closed_this_month,
+      COUNT(*) FILTER (WHERE d.is_archived = FALSE AND d.stage = 'dead') as dead_deals,
+      COUNT(*) FILTER (WHERE d.is_archived = TRUE) as archived_deals,
+      COALESCE(SUM(f.total_revenue_cr) FILTER (WHERE d.is_archived = FALSE AND d.stage = ANY($1::deal_stage[])), 0) as total_pipeline_value_cr,
+      AVG(f.irr_pct) FILTER (WHERE f.irr_pct IS NOT NULL AND d.is_archived = FALSE AND d.stage <> 'dead') as avg_irr_pct
      FROM deals d
-     LEFT JOIN financials f ON d.id = f.deal_id`
+     LEFT JOIN financials f ON d.id = f.deal_id`,
+    [liveStageArray]
   );
 
   const dealsStats = dealsStatsResult.rows[0];
@@ -22,15 +36,20 @@ const getDashboardStats = async (userId) => {
       COALESCE(SUM(f.total_revenue_cr), 0) as value_cr
      FROM deals d
      LEFT JOIN financials f ON d.id = f.deal_id
+     WHERE d.is_archived = FALSE
      GROUP BY d.stage
      ORDER BY CASE d.stage
-       WHEN 'screening' THEN 1
-       WHEN 'site_visit' THEN 2
-       WHEN 'loi' THEN 3
-       WHEN 'underwriting' THEN 4
-       WHEN 'active' THEN 5
-       WHEN 'closed' THEN 6
-       WHEN 'dead' THEN 7
+       WHEN 'sourced' THEN 1
+       WHEN 'screening' THEN 2
+       WHEN 'site_visit' THEN 3
+       WHEN 'loi' THEN 4
+       WHEN 'due_diligence' THEN 5
+       WHEN 'underwriting' THEN 6
+       WHEN 'ic_review' THEN 7
+       WHEN 'negotiation' THEN 8
+       WHEN 'active' THEN 9
+       WHEN 'closed' THEN 10
+       WHEN 'dead' THEN 11
      END`
   );
 
@@ -62,6 +81,7 @@ const getDashboardStats = async (userId) => {
      LEFT JOIN users u ON a.performed_by = u.id
      LEFT JOIN deals d ON a.deal_id = d.id
      LEFT JOIN properties p ON d.property_id = p.id
+     WHERE COALESCE(d.is_archived, FALSE) = FALSE
      ORDER BY a.activity_date DESC
      LIMIT 10`
   );
@@ -72,7 +92,7 @@ const getDashboardStats = async (userId) => {
      FROM deals d
      LEFT JOIN properties p ON d.property_id = p.id
      LEFT JOIN financials f ON d.id = f.deal_id
-     WHERE f.irr_pct IS NOT NULL AND d.stage NOT IN ('dead', 'closed')
+     WHERE f.irr_pct IS NOT NULL AND d.stage NOT IN ('dead', 'closed') AND d.is_archived = FALSE
      ORDER BY f.irr_pct DESC
      LIMIT 5`
   );
@@ -85,7 +105,7 @@ const getDashboardStats = async (userId) => {
       COUNT(*) as new_deals,
       COUNT(*) FILTER (WHERE d.stage = 'closed') as closed_deals
      FROM deals d
-     WHERE d.created_at >= NOW() - INTERVAL '6 months'
+     WHERE d.created_at >= NOW() - INTERVAL '6 months' AND d.is_archived = FALSE
      GROUP BY DATE_TRUNC('month', d.created_at), TO_CHAR(d.created_at, 'Mon YYYY')
      ORDER BY month_date ASC`
   );
@@ -95,7 +115,7 @@ const getDashboardStats = async (userId) => {
     `SELECT p.city, COUNT(d.id) as deal_count
      FROM deals d
      LEFT JOIN properties p ON d.property_id = p.id
-     WHERE d.stage NOT IN ('dead')
+     WHERE d.stage NOT IN ('dead') AND d.is_archived = FALSE
      GROUP BY p.city
      ORDER BY deal_count DESC
      LIMIT 8`
@@ -107,6 +127,7 @@ const getDashboardStats = async (userId) => {
       active_deals_count: parseInt(dealsStats.active_deals_count, 10),
       deals_closed_this_month: parseInt(dealsStats.deals_closed_this_month, 10),
       dead_deals: parseInt(dealsStats.dead_deals, 10),
+      archived_deals: parseInt(dealsStats.archived_deals, 10),
       total_pipeline_value_cr: parseFloat(dealsStats.total_pipeline_value_cr) || 0,
       avg_irr_pct: dealsStats.avg_irr_pct ? parseFloat(dealsStats.avg_irr_pct) : null,
       total_properties: totalProperties,

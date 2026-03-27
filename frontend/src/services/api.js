@@ -60,6 +60,8 @@ export const dealsAPI = {
   get: (id) => api.get(`/deals/${id}`),
   create: (data) => api.post('/deals', data),
   update: (id, data) => api.put(`/deals/${id}`, data),
+  archive: (id, reason) => api.patch(`/deals/${id}/archive`, { reason }),
+  restore: (id) => api.patch(`/deals/${id}/restore`),
   delete: (id) => api.delete(`/deals/${id}`),
   transitionStage: (id, stage, notes) => api.patch(`/deals/${id}/stage`, { stage, notes }),
   getPipeline: () => api.get('/deals/pipeline'),
@@ -95,6 +97,7 @@ export const compsAPI = {
 
 // Documents
 export const documentsAPI = {
+  dealOptions: () => api.get('/documents/deals/options'),
   list: (dealId, category) => api.get(`/documents/${dealId}`, { params: { category } }),
   upload: (dealId, formData) => api.post(`/documents/${dealId}/upload`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -105,8 +108,11 @@ export const documentsAPI = {
 
 // Activities
 export const activitiesAPI = {
+  all: (params) => api.get('/activities', { params }),
   list: (dealId, params) => api.get(`/activities/${dealId}`, { params }),
   create: (dealId, data) => api.post(`/activities/${dealId}`, data),
+  update: (activityId, data) => api.put(`/activities/entry/${activityId}`, data),
+  updateStatus: (activityId, status) => api.patch(`/activities/entry/${activityId}/status`, { status }),
   delete: (activityId) => api.delete(`/activities/entry/${activityId}`),
   recent: (limit) => api.get('/activities/recent', { params: { limit } }),
   my: (limit) => api.get('/activities/my', { params: { limit } }),
@@ -115,6 +121,11 @@ export const activitiesAPI = {
 // Dashboard
 export const dashboardAPI = {
   getStats: () => api.get('/dashboard'),
+};
+
+// Intelligence
+export const intelligenceAPI = {
+  getDailyBrief: (date) => api.get('/intelligence/daily-brief', { params: { date } }),
 };
 
 // Exports

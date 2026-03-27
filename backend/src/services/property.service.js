@@ -1,31 +1,158 @@
 const { query } = require('../config/database');
 const { createError } = require('../middleware/errorHandler');
+const { normalizePropertyType } = require('../constants/domain');
 const { geocodeAddress } = require('../utils/geocode');
+const { normalizeAreaSqft, normalizeAreaUnit, round } = require('../utils/landPricing');
+
+const buildDisplayNameSql = () =>
+  `COALESCE(
+    NULLIF(p.name, ''),
+    NULLIF(p.address, ''),
+    CONCAT(
+      COALESCE(NULLIF(p.city, ''), 'Unknown city'),
+      ' ',
+      INITCAP(REPLACE(COALESCE(p.property_type, 'land'), '_', ' ')),
+      ' opportunity'
+    )
+  )`;
+
+const hydrateGeocodeMetadata = async ({ address, city, state, pincode, lat, lng }) => {
+  if (lat !== undefined && lng !== undefined && lat !== null && lng !== null) {
+    return {
+      lat: Number(lat),
+      lng: Number(lng),
+      geocodeStatus: 'manual',
+      geocodeConfidence: 1,
+      geocodeMessage: 'Coordinates set manually.',
+      geocodeLastAttemptAt: new Date(),
+    };
+  }
+
+  const geocodeResult = await geocodeAddress(address, city, state, pincode);
+
+  if (!geocodeResult?.found) {
+    return {
+      lat: null,
+      lng: null,
+      geocodeStatus: geocodeResult?.status || 'failed',
+      geocodeConfidence: null,
+      geocodeMessage: geocodeResult?.message || 'Geocoding could not determine a location.',
+      geocodeLastAttemptAt: new Date(),
+    };
+  }
+
+  return {
+    lat: geocodeResult.lat,
+    lng: geocodeResult.lng,
+    geocodeStatus: geocodeResult.status,
+    geocodeConfidence: geocodeResult.confidence ? round(geocodeResult.confidence, 2) : null,
+    geocodeMessage: geocodeResult.message || null,
+    geocodeLastAttemptAt: new Date(),
+  };
+};
+
+const buildPropertyPayload = async (data = {}) => {
+  const landAreaInputUnit = normalizeAreaUnit(data.landAreaUnit || data.landAreaInputUnit || 'sqft');
+  const landAreaInputValue =
+    data.landAreaValue !== undefined
+      ? data.landAreaValue
+      : data.landAreaInputValue !== undefined
+        ? data.landAreaInputValue
+        : data.landAreaSqft;
+
+  const normalizedLandAreaSqft =
+    data.landAreaSqft !== undefined && data.landAreaSqft !== null && data.landAreaSqft !== ''
+      ? Number(data.landAreaSqft)
+      : normalizeAreaSqft(landAreaInputValue, landAreaInputUnit);
+
+  const geocodeMetadata = await hydrateGeocodeMetadata({
+    address: data.address,
+    city: data.city,
+    state: data.state,
+    pincode: data.pincode,
+    lat: data.lat,
+    lng: data.lng,
+  });
+
+  return {
+    name: data.name?.trim() || null,
+    address: data.address?.trim() || null,
+    city: data.city?.trim() || null,
+    state: data.state?.trim() || null,
+    pincode: data.pincode?.trim() || null,
+    propertyType: normalizePropertyType(data.propertyType || data.property_type || 'land'),
+    surveyNumber: data.surveyNumber?.trim() || null,
+    ownerName: data.ownerName?.trim() || null,
+    landAreaSqft: normalizedLandAreaSqft || null,
+    landAreaInputValue:
+      landAreaInputValue === undefined || landAreaInputValue === null || landAreaInputValue === ''
+        ? normalizedLandAreaSqft || null
+        : Number(landAreaInputValue),
+    landAreaInputUnit,
+    zoning: data.zoning || 'residential',
+    circleRatePerSqft:
+      data.circleRatePerSqft === undefined || data.circleRatePerSqft === ''
+        ? null
+        : Number(data.circleRatePerSqft),
+    permissibleFsi:
+      data.permissibleFsi === undefined || data.permissibleFsi === ''
+        ? null
+        : Number(data.permissibleFsi),
+    roadWidthMtrs:
+      data.roadWidthMtrs === undefined || data.roadWidthMtrs === ''
+        ? null
+        : Number(data.roadWidthMtrs),
+    ownershipType: data.ownershipType?.trim() || null,
+    encumbranceStatus: data.encumbranceStatus?.trim() || null,
+    notes: data.notes?.trim() || null,
+    ...geocodeMetadata,
+  };
+};
 
 const createProperty = async (data, userId) => {
-  const {
-    name, address, city, state, pincode, lat, lng,
-    surveyNumber, ownerName, landAreaSqft, zoning,
-    circleRatePerSqft, permissibleFsi, roadWidthMtrs,
-    ownershipType, encumbranceStatus, notes,
-  } = data;
+  const payload = await buildPropertyPayload(data);
 
   const result = await query(
     `INSERT INTO properties (
-      name, address, city, state, pincode, lat, lng,
-      survey_number, owner_name, land_area_sqft, zoning,
-      circle_rate_per_sqft, permissible_fsi, road_width_mtrs,
-      ownership_type, encumbrance_status, notes, created_by
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+      name, address, city, state, pincode, lat, lng, property_type,
+      survey_number, owner_name, land_area_sqft, land_area_input_value, land_area_input_unit,
+      zoning, circle_rate_per_sqft, permissible_fsi, road_width_mtrs,
+      ownership_type, encumbrance_status, geocode_status, geocode_confidence,
+      geocode_message, geocode_last_attempt_at, notes, created_by
+    ) VALUES (
+      $1,$2,$3,$4,$5,$6,$7,$8,
+      $9,$10,$11,$12,$13,
+      $14,$15,$16,$17,
+      $18,$19,$20,$21,
+      $22,$23,$24,$25
+    )
     RETURNING *`,
     [
-      name, address, city, state, pincode || null,
-      lat || null, lng || null,
-      surveyNumber || null, ownerName || null,
-      landAreaSqft || null, zoning || 'residential',
-      circleRatePerSqft || null, permissibleFsi || null,
-      roadWidthMtrs || null, ownershipType || null,
-      encumbranceStatus || null, notes || null, userId,
+      payload.name,
+      payload.address,
+      payload.city,
+      payload.state,
+      payload.pincode,
+      payload.lat,
+      payload.lng,
+      payload.propertyType,
+      payload.surveyNumber,
+      payload.ownerName,
+      payload.landAreaSqft,
+      payload.landAreaInputValue,
+      payload.landAreaInputUnit,
+      payload.zoning,
+      payload.circleRatePerSqft,
+      payload.permissibleFsi,
+      payload.roadWidthMtrs,
+      payload.ownershipType,
+      payload.encumbranceStatus,
+      payload.geocodeStatus,
+      payload.geocodeConfidence,
+      payload.geocodeMessage,
+      payload.geocodeLastAttemptAt,
+      payload.notes,
+      userId,
     ]
   );
 
@@ -38,59 +165,73 @@ const getProperties = async (filters = {}, pagination = {}) => {
   let paramCount = 1;
 
   if (filters.city) {
-    conditions.push(`LOWER(city) = LOWER($${paramCount})`);
+    conditions.push(`LOWER(p.city) = LOWER($${paramCount})`);
     values.push(filters.city);
     paramCount++;
   }
 
   if (filters.state) {
-    conditions.push(`LOWER(state) = LOWER($${paramCount})`);
+    conditions.push(`LOWER(p.state) = LOWER($${paramCount})`);
     values.push(filters.state);
     paramCount++;
   }
 
   if (filters.zoning) {
-    conditions.push(`zoning = $${paramCount}`);
+    conditions.push(`p.zoning = $${paramCount}`);
     values.push(filters.zoning);
     paramCount++;
   }
 
+  if (filters.propertyType) {
+    conditions.push(`p.property_type = $${paramCount}`);
+    values.push(filters.propertyType);
+    paramCount++;
+  }
+
+  if (filters.geocodeStatus) {
+    conditions.push(`p.geocode_status = $${paramCount}`);
+    values.push(filters.geocodeStatus);
+    paramCount++;
+  }
+
   if (filters.search) {
-    conditions.push(`(name ILIKE $${paramCount} OR address ILIKE $${paramCount} OR owner_name ILIKE $${paramCount})`);
+    conditions.push(
+      `(
+        COALESCE(p.name, '') ILIKE $${paramCount}
+        OR COALESCE(p.address, '') ILIKE $${paramCount}
+        OR COALESCE(p.owner_name, '') ILIKE $${paramCount}
+        OR COALESCE(p.city, '') ILIKE $${paramCount}
+      )`
+    );
     values.push(`%${filters.search}%`);
     paramCount++;
   }
 
   if (filters.minArea) {
-    conditions.push(`land_area_sqft >= $${paramCount}`);
+    conditions.push(`p.land_area_sqft >= $${paramCount}`);
     values.push(filters.minArea);
     paramCount++;
   }
 
   if (filters.maxArea) {
-    conditions.push(`land_area_sqft <= $${paramCount}`);
+    conditions.push(`p.land_area_sqft <= $${paramCount}`);
     values.push(filters.maxArea);
     paramCount++;
   }
 
   const page = parseInt(pagination.page, 10) || 1;
-  const limit = Math.min(parseInt(pagination.limit, 10) || 20, 100);
+  const limit = Math.min(parseInt(pagination.limit, 10) || 20, 200);
   const offset = (page - 1) * limit;
 
   const whereClause = conditions.join(' AND ');
-  const orderBy = 'ORDER BY created_at DESC';
-
-  const countResult = await query(
-    `SELECT COUNT(*) FROM properties WHERE ${whereClause}`,
-    values
-  );
+  const countResult = await query(`SELECT COUNT(*) FROM properties p WHERE ${whereClause}`, values);
 
   const dataResult = await query(
-    `SELECT p.*, u.name as created_by_name
+    `SELECT p.*, u.name as created_by_name, ${buildDisplayNameSql()} as display_name
      FROM properties p
      LEFT JOIN users u ON p.created_by = u.id
      WHERE ${whereClause}
-     ${orderBy}
+     ORDER BY p.updated_at DESC
      LIMIT $${paramCount} OFFSET $${paramCount + 1}`,
     [...values, limit, offset]
   );
@@ -109,7 +250,12 @@ const getProperties = async (filters = {}, pagination = {}) => {
 const getPropertyById = async (id) => {
   const result = await query(
     `SELECT p.*, u.name as created_by_name,
-     (SELECT COUNT(*) FROM deals WHERE property_id = p.id) as deal_count
+      ${buildDisplayNameSql()} as display_name,
+      (
+        SELECT COUNT(*)
+        FROM deals d
+        WHERE d.property_id = p.id AND d.is_archived = FALSE
+      ) as deal_count
      FROM properties p
      LEFT JOIN users u ON p.created_by = u.id
      WHERE p.id = $1`,
@@ -124,55 +270,72 @@ const getPropertyById = async (id) => {
 };
 
 const updateProperty = async (id, data) => {
-  const allowedFields = [
-    'name', 'address', 'city', 'state', 'pincode', 'lat', 'lng',
-    'survey_number', 'owner_name', 'land_area_sqft', 'zoning',
-    'circle_rate_per_sqft', 'permissible_fsi', 'road_width_mtrs',
-    'ownership_type', 'encumbrance_status', 'notes',
-  ];
-
-  // Map camelCase to snake_case
-  const fieldMap = {
-    surveyNumber: 'survey_number',
-    ownerName: 'owner_name',
-    landAreaSqft: 'land_area_sqft',
-    circleRatePerSqft: 'circle_rate_per_sqft',
-    permissibleFsi: 'permissible_fsi',
-    roadWidthMtrs: 'road_width_mtrs',
-    ownershipType: 'ownership_type',
-    encumbranceStatus: 'encumbrance_status',
-  };
-
-  const updates = [];
-  const values = [];
-  let paramCount = 1;
-
-  for (const [camel, snake] of Object.entries(fieldMap)) {
-    if (data[camel] !== undefined) {
-      updates.push(`${snake} = $${paramCount}`);
-      values.push(data[camel]);
-      paramCount++;
-    }
-  }
-
-  for (const field of ['name', 'address', 'city', 'state', 'pincode', 'lat', 'lng', 'zoning', 'notes']) {
-    if (data[field] !== undefined) {
-      updates.push(`${field} = $${paramCount}`);
-      values.push(data[field]);
-      paramCount++;
-    }
-  }
-
-  if (updates.length === 0) {
-    throw createError('No valid fields to update.', 400);
-  }
-
-  updates.push(`updated_at = NOW()`);
-  values.push(id);
+  const existingProperty = await getPropertyById(id);
+  const payload = await buildPropertyPayload({
+    ...existingProperty,
+    ...data,
+    propertyType: data.propertyType ?? data.property_type ?? existingProperty.property_type,
+    landAreaSqft: data.landAreaSqft ?? existingProperty.land_area_sqft,
+    landAreaInputValue: data.landAreaInputValue ?? existingProperty.land_area_input_value,
+    landAreaInputUnit: data.landAreaInputUnit ?? existingProperty.land_area_input_unit,
+  });
 
   const result = await query(
-    `UPDATE properties SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
-    values
+    `UPDATE properties SET
+      name = $1,
+      address = $2,
+      city = $3,
+      state = $4,
+      pincode = $5,
+      lat = $6,
+      lng = $7,
+      property_type = $8,
+      survey_number = $9,
+      owner_name = $10,
+      land_area_sqft = $11,
+      land_area_input_value = $12,
+      land_area_input_unit = $13,
+      zoning = $14,
+      circle_rate_per_sqft = $15,
+      permissible_fsi = $16,
+      road_width_mtrs = $17,
+      ownership_type = $18,
+      encumbrance_status = $19,
+      geocode_status = $20,
+      geocode_confidence = $21,
+      geocode_message = $22,
+      geocode_last_attempt_at = $23,
+      notes = $24,
+      updated_at = NOW()
+     WHERE id = $25
+     RETURNING *`,
+    [
+      payload.name,
+      payload.address,
+      payload.city,
+      payload.state,
+      payload.pincode,
+      payload.lat,
+      payload.lng,
+      payload.propertyType,
+      payload.surveyNumber,
+      payload.ownerName,
+      payload.landAreaSqft,
+      payload.landAreaInputValue,
+      payload.landAreaInputUnit,
+      payload.zoning,
+      payload.circleRatePerSqft,
+      payload.permissibleFsi,
+      payload.roadWidthMtrs,
+      payload.ownershipType,
+      payload.encumbranceStatus,
+      payload.geocodeStatus,
+      payload.geocodeConfidence,
+      payload.geocodeMessage,
+      payload.geocodeLastAttemptAt,
+      payload.notes,
+      id,
+    ]
   );
 
   if (result.rows.length === 0) {
@@ -183,14 +346,20 @@ const updateProperty = async (id, data) => {
 };
 
 const deleteProperty = async (id) => {
-  // Check if property has active deals
   const dealsResult = await query(
-    "SELECT COUNT(*) FROM deals WHERE property_id = $1 AND stage NOT IN ('closed', 'dead')",
+    `SELECT COUNT(*)
+     FROM deals
+     WHERE property_id = $1
+       AND is_archived = FALSE
+       AND stage NOT IN ('closed', 'dead')`,
     [id]
   );
 
   if (parseInt(dealsResult.rows[0].count, 10) > 0) {
-    throw createError('Cannot delete property with active deals. Please close or archive all deals first.', 409);
+    throw createError(
+      'Cannot delete property with live deals. Archive or close the linked deals first.',
+      409
+    );
   }
 
   const result = await query('DELETE FROM properties WHERE id = $1 RETURNING id', [id]);
@@ -212,13 +381,34 @@ const geocodePropertyAddress = async (propertyId) => {
     property.pincode
   );
 
-  if (!coords) {
-    throw createError('Could not geocode the property address. Please check the address details.', 422);
+  if (!coords?.found) {
+    const updateResult = await query(
+      `UPDATE properties
+       SET geocode_status = $1,
+           geocode_message = $2,
+           geocode_confidence = NULL,
+           geocode_last_attempt_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [coords?.status || 'failed', coords?.message || 'Geocoding failed.', propertyId]
+    );
+
+    throw createError(updateResult.rows[0]?.geocode_message || 'Could not geocode the property address.', 422);
   }
 
   const result = await query(
-    'UPDATE properties SET lat = $1, lng = $2, updated_at = NOW() WHERE id = $3 RETURNING *',
-    [coords.lat, coords.lng, propertyId]
+    `UPDATE properties
+     SET lat = $1,
+         lng = $2,
+         geocode_status = $3,
+         geocode_confidence = $4,
+         geocode_message = $5,
+         geocode_last_attempt_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $6
+     RETURNING *`,
+    [coords.lat, coords.lng, coords.status, coords.confidence, coords.message, propertyId]
   );
 
   return result.rows[0];

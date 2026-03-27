@@ -1,3 +1,44 @@
+## REDIP Project Instructions
+
+REDIP is not a generic CRM. It is an investor-facing real estate development intelligence platform for India, with Bengaluru as the primary intelligence market.
+
+### Product priorities
+
+- Optimize for sourcing, screening, underwriting, IC preparation, and pipeline clarity.
+- Keep forms realistic for incomplete live data.
+- Preserve high-trust, institutional UX.
+- Use explicit units and Indian number formatting where relevant.
+- Never ship demo, mock, fabricated, or hallucinated business data as if it were real.
+
+### Local workflow
+
+- Use `run-redip.ps1` from the repo root for local startup.
+- Use `database/schema.sql` for a clean DB and `database/migrations/` for incremental patches.
+- Frontend builds from `frontend/` and backend runs from `backend/`.
+- Vercel serves the React app from `frontend/dist` and the API through `api/index.js`.
+
+### Important domain conventions
+
+- Property name and address are not always known at first contact.
+- Land pricing may be entered as total price, INR per acre, or INR per sqft.
+- Area may be entered in acres or sqft and should normalize consistently.
+- Deal stages and valid transitions are centrally defined in `backend/src/constants/domain.js`.
+- Archived deals should disappear from primary pipeline views without corrupting historical activity or documents.
+- External market intelligence must be verified-data-only. If sources are not configured, REDIP should surface truthful readiness messaging instead of generated market claims.
+
+### Change discipline
+
+- When touching a workflow, inspect the whole chain:
+  - form inputs
+  - client validation
+  - API payload
+  - service logic
+  - SQL reads/writes
+  - dashboard aggregates
+  - compare/map/documents side effects
+- Prefer robust refactors over one-off UI patches.
+- Do not reintroduce hard requirements that make early sourcing harder.
+
 <!-- VERCEL BEST PRACTICES START -->
 ## Best practices for developing on Vercel
 

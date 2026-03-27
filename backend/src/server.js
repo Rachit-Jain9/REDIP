@@ -18,6 +18,7 @@ const activityRoutes = require('./routes/activity.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 const exportRoutes = require('./routes/export.routes');
 const healthRoutes = require('./routes/health.routes');
+const intelligenceRoutes = require('./routes/intelligence.routes');
 
 const app = express();
 
@@ -78,6 +79,7 @@ app.use('/api/comps', compsRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/activities', activityRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/intelligence', intelligenceRoutes);
 app.use('/api/exports', exportRoutes);
 app.use('/api/health', healthRoutes);
 

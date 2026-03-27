@@ -31,6 +31,7 @@ export function useCreateDeal() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['deals'] });
       qc.invalidateQueries({ queryKey: ['pipeline'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Deal created');
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to create deal'),
@@ -44,6 +45,7 @@ export function useUpdateDeal() {
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ['deals'] });
       qc.invalidateQueries({ queryKey: ['deal', id] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Deal updated');
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to update deal'),
@@ -58,9 +60,40 @@ export function useTransitionStage() {
       qc.invalidateQueries({ queryKey: ['deals'] });
       qc.invalidateQueries({ queryKey: ['deal', id] });
       qc.invalidateQueries({ queryKey: ['pipeline'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Stage updated');
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Invalid stage transition'),
+  });
+}
+
+export function useArchiveDeal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }) => dealsAPI.archive(id, reason).then((r) => r.data),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['deals'] });
+      qc.invalidateQueries({ queryKey: ['deal', id] });
+      qc.invalidateQueries({ queryKey: ['pipeline'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      toast.success('Deal archived');
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to archive deal'),
+  });
+}
+
+export function useRestoreDeal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => dealsAPI.restore(id).then((r) => r.data),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ['deals'] });
+      qc.invalidateQueries({ queryKey: ['deal', id] });
+      qc.invalidateQueries({ queryKey: ['pipeline'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      toast.success('Deal restored');
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to restore deal'),
   });
 }
 
@@ -71,6 +104,7 @@ export function useDeleteDeal() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['deals'] });
       qc.invalidateQueries({ queryKey: ['pipeline'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Deal deleted');
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete deal'),

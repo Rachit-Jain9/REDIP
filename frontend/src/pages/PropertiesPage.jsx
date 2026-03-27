@@ -16,7 +16,8 @@ import LoadingSpinner from '../components/common/LoadingSpinner';
 import EmptyState from '../components/common/EmptyState';
 import PageHeader from '../components/common/PageHeader';
 import Badge from '../components/common/Badge';
-import { formatINR, formatArea } from '../utils/format';
+import { formatINR, formatArea, PROPERTY_TYPE_LABELS } from '../utils/format';
+import { normalizeAreaSqft } from '../utils/landPricing';
 
 const ZONING_OPTIONS = [
   { value: 'residential', label: 'Residential' },
@@ -24,6 +25,17 @@ const ZONING_OPTIONS = [
   { value: 'industrial', label: 'Industrial' },
   { value: 'mixed_use', label: 'Mixed Use' },
   { value: 'agricultural', label: 'Agricultural' },
+];
+
+const PROPERTY_TYPE_OPTIONS = [
+  { value: 'land', label: 'Land' },
+  { value: 'residential', label: 'Residential' },
+  { value: 'commercial', label: 'Commercial' },
+  { value: 'mixed_use', label: 'Mixed Use' },
+  { value: 'industrial', label: 'Industrial' },
+  { value: 'office', label: 'Office' },
+  { value: 'retail', label: 'Retail' },
+  { value: 'hospitality', label: 'Hospitality' },
 ];
 
 const ITEMS_PER_PAGE = 12;
@@ -34,8 +46,10 @@ const initialFormState = {
   city: '',
   state: '',
   pincode: '',
+  propertyType: 'land',
   zoning: 'residential',
-  landAreaSqft: '',
+  landAreaValue: '',
+  landAreaUnit: 'sqft',
   circleRatePerSqft: '',
   permissibleFsi: '',
   surveyNumber: '',
@@ -48,6 +62,7 @@ const zoningLabel = (value) =>
 export default function PropertiesPage() {
   const [search, setSearch] = useState('');
   const [cityFilter, setCityFilter] = useState('');
+  const [propertyTypeFilter, setPropertyTypeFilter] = useState('');
   const [zoningFilter, setZoningFilter] = useState('');
   const [page, setPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
@@ -57,9 +72,10 @@ export default function PropertiesPage() {
     const params = { page, limit: ITEMS_PER_PAGE };
     if (search) params.search = search;
     if (cityFilter) params.city = cityFilter;
+    if (propertyTypeFilter) params.propertyType = propertyTypeFilter;
     if (zoningFilter) params.zoning = zoningFilter;
     return params;
-  }, [cityFilter, page, search, zoningFilter]);
+  }, [cityFilter, page, propertyTypeFilter, search, zoningFilter]);
 
   const { data, isLoading, isError } = useProperties(queryParams);
   const createProperty = useCreateProperty();
@@ -68,6 +84,8 @@ export default function PropertiesPage() {
   const properties = data?.data || [];
   const pagination = data?.pagination || { total: 0, page: 1, totalPages: 1 };
   const cities = [...new Set(properties.map((property) => property.city).filter(Boolean))];
+  const landAreaPreviewSqft = normalizeAreaSqft(form.landAreaValue, form.landAreaUnit);
+  const landAreaPreviewAcres = landAreaPreviewSqft ? landAreaPreviewSqft / 43560 : null;
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
@@ -80,12 +98,17 @@ export default function PropertiesPage() {
     try {
       await createProperty.mutateAsync({
         ...form,
-        landAreaSqft: form.landAreaSqft ? Number(form.landAreaSqft) : undefined,
         circleRatePerSqft: form.circleRatePerSqft ? Number(form.circleRatePerSqft) : undefined,
         permissibleFsi: form.permissibleFsi ? Number(form.permissibleFsi) : undefined,
         pincode: form.pincode || undefined,
         surveyNumber: form.surveyNumber || undefined,
         ownerName: form.ownerName || undefined,
+        name: form.name || undefined,
+        address: form.address || undefined,
+        city: form.city || undefined,
+        state: form.state || undefined,
+        landAreaValue: form.landAreaValue ? Number(form.landAreaValue) : undefined,
+        landAreaUnit: form.landAreaUnit,
       });
       setForm(initialFormState);
       setShowModal(false);
@@ -141,6 +164,22 @@ export default function PropertiesPage() {
             {cities.map((city) => (
               <option key={city} value={city}>
                 {city}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={propertyTypeFilter}
+            onChange={(e) => {
+              setPropertyTypeFilter(e.target.value);
+              setPage(1);
+            }}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+          >
+            <option value="">All Types</option>
+            {PROPERTY_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -208,19 +247,33 @@ export default function PropertiesPage() {
                     to={`/properties/${property.id}`}
                     className="text-lg font-semibold text-gray-900 hover:text-primary-600"
                   >
-                    {property.name}
+                    {property.display_name || property.name || 'Untitled property'}
                   </Link>
-                  {property.zoning && <Badge>{zoningLabel(property.zoning)}</Badge>}
+                  <div className="flex items-center gap-2">
+                    {property.property_type && (
+                      <Badge className="bg-slate-100 text-slate-700">
+                        {PROPERTY_TYPE_LABELS[property.property_type] || property.property_type}
+                      </Badge>
+                    )}
+                    {property.zoning && <Badge>{zoningLabel(property.zoning)}</Badge>}
+                  </div>
                 </div>
 
                 <div className="mb-4 flex items-center gap-1 text-sm text-gray-500">
                   <MapPin className="h-3.5 w-3.5" />
                   <span className="truncate">
-                    {property.address}
+                    {property.address || 'Address pending'}
                     {property.city && `, ${property.city}`}
                     {property.state && `, ${property.state}`}
                   </span>
                 </div>
+
+                {property.geocode_status && (
+                  <p className="mb-4 text-xs text-gray-500">
+                    Map sync: {property.geocode_status.replace(/_/g, ' ')}
+                    {property.geocode_message ? ` - ${property.geocode_message}` : ''}
+                  </p>
+                )}
 
                 <div className="grid grid-cols-3 gap-3 border-t border-gray-100 pt-3">
                   <div className="flex flex-col items-center gap-1">
@@ -302,49 +355,49 @@ export default function PropertiesPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Property Name *</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Property Name</label>
                   <input
                     type="text"
                     name="name"
                     value={form.name}
                     onChange={handleFormChange}
-                    required
+                    placeholder="Optional if you only know the location for now"
                     className="input"
                   />
                 </div>
 
                 <div className="col-span-2">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Address *</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Address</label>
                   <input
                     type="text"
                     name="address"
                     value={form.address}
                     onChange={handleFormChange}
-                    required
+                    placeholder="Optional. The map will geocode this automatically when enough detail is available."
                     className="input"
                   />
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">City *</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">City</label>
                   <input
                     type="text"
                     name="city"
                     value={form.city}
                     onChange={handleFormChange}
-                    required
+                    placeholder="Bengaluru, Mumbai..."
                     className="input"
                   />
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">State *</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">State</label>
                   <input
                     type="text"
                     name="state"
                     value={form.state}
                     onChange={handleFormChange}
-                    required
+                    placeholder="Karnataka, Maharashtra..."
                     className="input"
                   />
                 </div>
@@ -361,12 +414,27 @@ export default function PropertiesPage() {
                 </div>
 
                 <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Property Type</label>
+                  <select
+                    name="propertyType"
+                    value={form.propertyType}
+                    onChange={handleFormChange}
+                    className="input"
+                  >
+                    {PROPERTY_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">Zoning *</label>
                   <select
                     name="zoning"
                     value={form.zoning}
                     onChange={handleFormChange}
-                    required
                     className="input"
                   >
                     {ZONING_OPTIONS.map((option) => (
@@ -377,16 +445,34 @@ export default function PropertiesPage() {
                   </select>
                 </div>
 
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Land Area (sq ft)</label>
-                  <input
-                    type="number"
-                    name="landAreaSqft"
-                    value={form.landAreaSqft}
-                    onChange={handleFormChange}
-                    min="0"
-                    className="input"
-                  />
+                <div className="col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Land Extent</label>
+                  <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-3">
+                    <input
+                      type="number"
+                      name="landAreaValue"
+                      value={form.landAreaValue}
+                      onChange={handleFormChange}
+                      min="0"
+                      step="0.01"
+                      placeholder="Enter acres or sqft"
+                      className="input"
+                    />
+                    <select
+                      name="landAreaUnit"
+                      value={form.landAreaUnit}
+                      onChange={handleFormChange}
+                      className="input"
+                    >
+                      <option value="sqft">sq ft</option>
+                      <option value="acre">acre</option>
+                    </select>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    {landAreaPreviewSqft
+                      ? `Normalized area: ${formatArea(landAreaPreviewSqft)} (${landAreaPreviewAcres?.toFixed(4)} acres)`
+                      : 'Enter whichever unit you have. REDIP converts and stores the normalized sqft area automatically.'}
+                  </p>
                 </div>
 
                 <div>
@@ -397,6 +483,7 @@ export default function PropertiesPage() {
                     value={form.circleRatePerSqft}
                     onChange={handleFormChange}
                     min="0"
+                    step="0.01"
                     className="input"
                   />
                 </div>
@@ -409,7 +496,7 @@ export default function PropertiesPage() {
                     value={form.permissibleFsi}
                     onChange={handleFormChange}
                     min="0"
-                    step="0.1"
+                    step="0.01"
                     className="input"
                   />
                 </div>

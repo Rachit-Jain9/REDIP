@@ -3,11 +3,38 @@ const { createError } = require('../middleware/errorHandler');
 const { uploadFile, getSignedUrl: getSupabaseSignedUrl, deleteFile } = require('../config/supabase');
 const path = require('path');
 
+const getDocumentDealOptions = async () => {
+  const result = await query(
+    `SELECT
+      d.id,
+      d.name,
+      d.stage,
+      d.updated_at,
+      p.city,
+      COALESCE(NULLIF(p.name, ''), NULLIF(p.address, ''), CONCAT(COALESCE(p.city, 'Unknown city'), ' property')) as property_name
+     FROM deals d
+     LEFT JOIN properties p ON d.property_id = p.id
+     WHERE d.is_archived = FALSE
+     ORDER BY
+       CASE
+         WHEN d.stage IN ('sourced', 'screening', 'site_visit', 'loi', 'due_diligence', 'underwriting', 'ic_review', 'negotiation', 'active') THEN 1
+         ELSE 2
+       END,
+       d.updated_at DESC`
+  );
+
+  return result.rows;
+};
+
 const uploadDocument = async (dealId, file, category, userId, description = '') => {
   // Verify deal exists
-  const dealResult = await query('SELECT id FROM deals WHERE id = $1', [dealId]);
+  const dealResult = await query('SELECT id, is_archived FROM deals WHERE id = $1', [dealId]);
   if (dealResult.rows.length === 0) {
     throw createError('Deal not found.', 404);
+  }
+
+  if (dealResult.rows[0].is_archived) {
+    throw createError('Restore the archived deal before uploading documents to it.', 409);
   }
 
   if (!file || !file.buffer) {
@@ -53,6 +80,11 @@ const uploadDocument = async (dealId, file, category, userId, description = '') 
 };
 
 const getDocuments = async (dealId, category = null) => {
+  const dealResult = await query('SELECT id, is_archived FROM deals WHERE id = $1', [dealId]);
+  if (dealResult.rows.length === 0) {
+    throw createError('Deal not found.', 404);
+  }
+
   const conditions = ['d.deal_id = $1'];
   const values = [dealId];
   let paramCount = 2;
@@ -131,6 +163,7 @@ const getSignedUrl = async (documentId) => {
 };
 
 module.exports = {
+  getDocumentDealOptions,
   uploadDocument,
   getDocuments,
   deleteDocument,

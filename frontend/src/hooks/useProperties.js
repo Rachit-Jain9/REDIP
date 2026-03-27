@@ -23,6 +23,7 @@ export function useCreateProperty() {
     mutationFn: (data) => propertiesAPI.create(data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['properties'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Property created');
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to create property'),
@@ -36,6 +37,7 @@ export function useUpdateProperty() {
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ['properties'] });
       qc.invalidateQueries({ queryKey: ['property', id] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Property updated');
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to update property'),
@@ -48,6 +50,7 @@ export function useDeleteProperty() {
     mutationFn: (id) => propertiesAPI.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['properties'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Property deleted');
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete property'),
