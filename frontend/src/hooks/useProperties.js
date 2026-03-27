@@ -1,0 +1,55 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { propertiesAPI } from '../services/api';
+import { toast } from '../components/common/Toast';
+
+export function useProperties(params = {}) {
+  return useQuery({
+    queryKey: ['properties', params],
+    queryFn: () => propertiesAPI.list(params).then((r) => r.data),
+  });
+}
+
+export function useProperty(id) {
+  return useQuery({
+    queryKey: ['property', id],
+    queryFn: () => propertiesAPI.get(id).then((r) => r.data.data),
+    enabled: !!id,
+  });
+}
+
+export function useCreateProperty() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data) => propertiesAPI.create(data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['properties'] });
+      toast.success('Property created');
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to create property'),
+  });
+}
+
+export function useUpdateProperty() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }) => propertiesAPI.update(id, data).then((r) => r.data),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['properties'] });
+      qc.invalidateQueries({ queryKey: ['property', id] });
+      toast.success('Property updated');
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to update property'),
+  });
+}
+
+export function useDeleteProperty() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => propertiesAPI.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['properties'] });
+      toast.success('Property deleted');
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete property'),
+  });
+}

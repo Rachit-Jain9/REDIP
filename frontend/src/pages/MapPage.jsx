@@ -1,0 +1,620 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import {
+  Layers3,
+  LocateFixed,
+  MapPin,
+  RotateCcw,
+  Search,
+} from 'lucide-react';
+import { useProperties } from '../hooks/useProperties';
+import { useDeals } from '../hooks/useDeals';
+import { compsAPI } from '../services/api';
+import Badge from '../components/common/Badge';
+import PageHeader from '../components/common/PageHeader';
+import MapCanvas from '../components/map/MapCanvas';
+import {
+  DEFAULT_VISIBLE_STAGES,
+  SEARCH_RADIUS_OPTIONS,
+  STAGE_HEAT_META,
+  ZONING_META,
+  mapZoningToCompType,
+  matchesSearch,
+  normalizeComp,
+  normalizeDeal,
+  normalizeProperty,
+} from '../components/map/mapConfig';
+import { formatArea, formatCrores, formatINR } from '../utils/format';
+
+function ToggleRow({ checked, label, description, onChange }) {
+  return (
+    <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 py-3">
+      <div>
+        <p className="text-sm font-medium text-gray-900">{label}</p>
+        <p className="mt-0.5 text-xs text-gray-500">{description}</p>
+      </div>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+      />
+    </label>
+  );
+}
+
+export default function MapPage() {
+  const { data: propertiesData, isLoading: propertiesLoading } = useProperties({ limit: 200 });
+  const { data: dealsData, isLoading: dealsLoading } = useDeals({ limit: 200 });
+
+  const [search, setSearch] = useState('');
+  const [cityFilter, setCityFilter] = useState('all');
+  const [zoningFilter, setZoningFilter] = useState('all');
+  const [selectedPropertyId, setSelectedPropertyId] = useState(null);
+  const [fitVersion, setFitVersion] = useState(0);
+  const [showClusters, setShowClusters] = useState(true);
+  const [showNearbyComps, setShowNearbyComps] = useState(true);
+  const [showDealHeat, setShowDealHeat] = useState(true);
+  const [nearbyRadiusKm, setNearbyRadiusKm] = useState(5);
+  const [visibleStages, setVisibleStages] = useState(DEFAULT_VISIBLE_STAGES);
+
+  const rawProperties = propertiesData?.properties ?? propertiesData?.data ?? [];
+  const rawDeals = dealsData?.data ?? [];
+
+  const normalizedProperties = useMemo(
+    () => rawProperties.map(normalizeProperty),
+    [rawProperties]
+  );
+
+  const normalizedDeals = useMemo(
+    () => rawDeals.map(normalizeDeal),
+    [rawDeals]
+  );
+
+  const mappableProperties = useMemo(
+    () =>
+      normalizedProperties.filter(
+        (property) => Number.isFinite(property.lat) && Number.isFinite(property.lng)
+      ),
+    [normalizedProperties]
+  );
+
+  const cityOptions = useMemo(
+    () => [...new Set(mappableProperties.map((property) => property.city).filter(Boolean))].sort(),
+    [mappableProperties]
+  );
+
+  const filteredProperties = useMemo(
+    () =>
+      mappableProperties.filter((property) => {
+        if (cityFilter !== 'all' && property.city !== cityFilter) {
+          return false;
+        }
+
+        if (zoningFilter !== 'all' && property.zoning !== zoningFilter) {
+          return false;
+        }
+
+        return matchesSearch(property, search);
+      }),
+    [cityFilter, mappableProperties, search, zoningFilter]
+  );
+
+  const filteredPropertyIds = useMemo(
+    () => new Set(filteredProperties.map((property) => property.id)),
+    [filteredProperties]
+  );
+
+  const selectedProperty = filteredProperties.find((property) => property.id === selectedPropertyId) || null;
+
+  useEffect(() => {
+    if (selectedPropertyId && !filteredProperties.some((property) => property.id === selectedPropertyId)) {
+      setSelectedPropertyId(null);
+    }
+  }, [filteredProperties, selectedPropertyId]);
+
+  const nearbyCompProjectType = selectedProperty ? mapZoningToCompType(selectedProperty.zoning) : null;
+
+  const { data: nearbyCompsResponse, isFetching: nearbyCompsLoading } = useQuery({
+    queryKey: ['map-nearby-comps', selectedProperty?.id, nearbyRadiusKm, nearbyCompProjectType],
+    enabled: showNearbyComps && !!selectedProperty,
+    queryFn: () =>
+      compsAPI.nearby({
+        lat: selectedProperty.lat,
+        lng: selectedProperty.lng,
+        radius: nearbyRadiusKm,
+        projectType: nearbyCompProjectType,
+      }).then((response) => response.data.data || []),
+  });
+
+  const { data: nearbyBenchmarksResponse, isFetching: nearbyBenchmarksLoading } = useQuery({
+    queryKey: ['map-comp-benchmarks', selectedProperty?.id, nearbyRadiusKm, nearbyCompProjectType],
+    enabled: showNearbyComps && !!selectedProperty,
+    queryFn: () =>
+      compsAPI.benchmarks({
+        lat: selectedProperty.lat,
+        lng: selectedProperty.lng,
+        radius: nearbyRadiusKm,
+        projectType: nearbyCompProjectType,
+      }).then((response) => response.data.data || null),
+  });
+
+  const nearbyComps = useMemo(
+    () =>
+      (nearbyCompsResponse || [])
+        .map(normalizeComp)
+        .filter((comp) => Number.isFinite(comp.lat) && Number.isFinite(comp.lng)),
+    [nearbyCompsResponse]
+  );
+
+  const visibleDeals = useMemo(
+    () =>
+      normalizedDeals.filter(
+        (deal) =>
+          filteredPropertyIds.has(deal.propertyId) &&
+          Number.isFinite(deal.lat) &&
+          Number.isFinite(deal.lng)
+      ),
+    [filteredPropertyIds, normalizedDeals]
+  );
+
+  const heatLayers = useMemo(() => {
+    const grouped = new Map();
+
+    for (const deal of visibleDeals) {
+      if (!visibleStages[deal.stage]) {
+        continue;
+      }
+
+      const key = `${deal.propertyId}:${deal.stage}`;
+      const current = grouped.get(key) || {
+        id: key,
+        propertyName: deal.property_name || deal.propertyName,
+        city: deal.city,
+        stage: deal.stage,
+        lat: deal.lat,
+        lng: deal.lng,
+        count: 0,
+        totalRevenueCr: 0,
+        irrAccumulator: 0,
+      };
+
+      current.count += 1;
+      current.totalRevenueCr += Number.isFinite(deal.totalRevenueCr) ? deal.totalRevenueCr : 0;
+      current.irrAccumulator += Number.isFinite(deal.irrPct) ? deal.irrPct : 0;
+      grouped.set(key, current);
+    }
+
+    return Array.from(grouped.values()).map((layer) => ({
+      ...layer,
+      avgIrrPct: layer.count > 0 ? layer.irrAccumulator / layer.count : null,
+      radiusMeters: 1800 + layer.count * 1800 + (STAGE_HEAT_META[layer.stage]?.radiusBoost || 0),
+    }));
+  }, [visibleDeals, visibleStages]);
+
+  const totalLandArea = filteredProperties.reduce(
+    (sum, property) => sum + (Number.isFinite(property.landAreaSqft) ? property.landAreaSqft : 0),
+    0
+  );
+
+  const visibleDealValueCr = visibleDeals.reduce(
+    (sum, deal) => sum + (Number.isFinite(deal.totalRevenueCr) ? deal.totalRevenueCr : 0),
+    0
+  );
+
+  const cityCounts = filteredProperties.reduce((acc, property) => {
+    if (property.city) {
+      acc[property.city] = (acc[property.city] || 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  const dominantCity = Object.entries(cityCounts).sort((a, b) => b[1] - a[1])[0] || null;
+  const unmappedCount = normalizedProperties.length - mappableProperties.length;
+
+  const circleRateValues = filteredProperties
+    .map((property) => property.circleRatePerSqft)
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  const averageCircleRate = circleRateValues.length > 0
+    ? circleRateValues.reduce((sum, value) => sum + value, 0) / circleRateValues.length
+    : null;
+
+  const nearbyBenchmarks = nearbyBenchmarksResponse?.benchmarks || null;
+  const mapIsLoading = propertiesLoading || dealsLoading;
+
+  const toggleStageVisibility = (stage) => {
+    setVisibleStages((current) => ({
+      ...current,
+      [stage]: !current[stage],
+    }));
+  };
+
+  const resetFilters = () => {
+    setSearch('');
+    setCityFilter('all');
+    setZoningFilter('all');
+    setSelectedPropertyId(null);
+    setNearbyRadiusKm(5);
+    setShowClusters(true);
+    setShowNearbyComps(true);
+    setShowDealHeat(true);
+    setVisibleStages(DEFAULT_VISIBLE_STAGES);
+    setFitVersion((value) => value + 1);
+  };
+
+  const fitVisibleProperties = () => {
+    setSelectedPropertyId(null);
+    setFitVersion((value) => value + 1);
+  };
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Map Intelligence"
+        description="Explore clustered properties, stage-based deal heat, and nearby comparable overlays from one spatial control room."
+      />
+
+      <div className="grid grid-cols-1 xl:grid-cols-[390px_minmax(0,1fr)] gap-6">
+        <aside className="card flex h-[calc(100vh-180px)] min-h-[720px] flex-col overflow-hidden">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-blue-50 px-3 py-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-blue-600">Visible Properties</p>
+              <p className="mt-2 text-2xl font-semibold text-gray-900">{filteredProperties.length}</p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 px-3 py-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-emerald-600">Visible Deals</p>
+              <p className="mt-2 text-2xl font-semibold text-gray-900">{visibleDeals.length}</p>
+            </div>
+            <div className="rounded-xl bg-purple-50 px-3 py-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-purple-600">Cities</p>
+              <p className="mt-2 text-2xl font-semibold text-gray-900">{Object.keys(cityCounts).length}</p>
+            </div>
+            <div className="rounded-xl bg-amber-50 px-3 py-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-amber-600">Unmapped</p>
+              <p className="mt-2 text-2xl font-semibold text-gray-900">{unmappedCount}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search property, city, survey, owner..."
+                className="input pl-10"
+              />
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <select
+                value={cityFilter}
+                onChange={(event) => setCityFilter(event.target.value)}
+                className="input"
+              >
+                <option value="all">All Cities</option>
+                {cityOptions.map((city) => (
+                  <option key={city} value={city}>
+                    {city}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={zoningFilter}
+                onChange={(event) => setZoningFilter(event.target.value)}
+                className="input"
+              >
+                <option value="all">All Zoning</option>
+                {Object.entries(ZONING_META).map(([value, meta]) => (
+                  <option key={value} value={value}>
+                    {meta.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={fitVisibleProperties} className="btn-secondary text-sm">
+                <LocateFixed size={16} className="mr-2" />
+                Fit Visible
+              </button>
+              <button type="button" onClick={resetFilters} className="btn-secondary text-sm">
+                <RotateCcw size={16} className="mr-2" />
+                Reset
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
+              <div className="rounded-xl bg-white px-3 py-3">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Visible Land Bank</p>
+                <p className="mt-1 font-semibold text-gray-900">{formatArea(totalLandArea)}</p>
+              </div>
+              <div className="rounded-xl bg-white px-3 py-3">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Visible Deal Value</p>
+                <p className="mt-1 font-semibold text-gray-900">{formatCrores(visibleDealValueCr)}</p>
+              </div>
+              <div className="rounded-xl bg-white px-3 py-3">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Average Circle Rate</p>
+                <p className="mt-1 font-semibold text-gray-900">
+                  {averageCircleRate ? `${formatINR(averageCircleRate, 0)}/sqft` : '-'}
+                </p>
+              </div>
+              <div className="rounded-xl bg-white px-3 py-3">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Dominant City</p>
+                <p className="mt-1 font-semibold text-gray-900">
+                  {dominantCity ? `${dominantCity[0]} (${dominantCity[1]})` : '-'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Smart Layers</h2>
+                <p className="text-sm text-gray-500">Turn overlays on and off depending on the story you want to see.</p>
+              </div>
+              <div className="rounded-xl bg-primary-50 p-2 text-primary-600">
+                <Layers3 size={18} />
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <ToggleRow
+                checked={showClusters}
+                onChange={() => setShowClusters((value) => !value)}
+                label="Property clustering"
+                description="Automatically groups nearby properties at wider zoom levels."
+              />
+              <ToggleRow
+                checked={showNearbyComps}
+                onChange={() => setShowNearbyComps((value) => !value)}
+                label="Nearby comps overlay"
+                description="Shows comparable projects around the selected property."
+              />
+              <ToggleRow
+                checked={showDealHeat}
+                onChange={() => setShowDealHeat((value) => !value)}
+                label="Deal-stage heat zones"
+                description="Renders translucent stage-based influence zones using deal pipeline data."
+              />
+            </div>
+
+            <div className="mt-4 rounded-xl bg-white px-3 py-3">
+              <p className="text-xs uppercase tracking-wide text-gray-400">Nearby Comp Radius</p>
+              <p className="mt-1 text-sm text-gray-500">
+                {selectedProperty ? 'Adjust the search area for the selected property.' : 'Select a property to activate nearby comps.'}
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {SEARCH_RADIUS_OPTIONS.map((radius) => (
+                  <button
+                    key={radius}
+                    type="button"
+                    onClick={() => setNearbyRadiusKm(radius)}
+                    className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                      nearbyRadiusKm === radius
+                        ? 'bg-primary-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {radius} km
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl bg-white px-3 py-3">
+              <p className="text-xs uppercase tracking-wide text-gray-400">Stage Heat Filters</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {Object.entries(STAGE_HEAT_META).map(([stage, meta]) => (
+                  <button
+                    key={stage}
+                    type="button"
+                    onClick={() => setVisibleStages((current) => ({ ...current, [stage]: !current[stage] }))}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${
+                      visibleStages[stage]
+                        ? 'border-transparent bg-slate-900 text-white'
+                        : 'border-gray-200 bg-white text-gray-500'
+                    }`}
+                  >
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: meta.color }} />
+                    {meta.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Selected Property</h2>
+                <p className="text-sm text-gray-500">Focus one property to unlock nearby comps and pricing context.</p>
+              </div>
+              <div className="rounded-xl bg-primary-50 p-2 text-primary-600">
+                <MapPin size={18} />
+              </div>
+            </div>
+
+            {selectedProperty ? (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-xl bg-white px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-gray-900">{selectedProperty.name}</p>
+                      <p className="mt-1 text-sm text-gray-500">{selectedProperty.city}, {selectedProperty.state}</p>
+                    </div>
+                    <Badge className={(ZONING_META[selectedProperty.zoning] || ZONING_META.residential).badgeClass}>
+                      {(ZONING_META[selectedProperty.zoning] || ZONING_META.residential).label}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Area</p>
+                      <p className="mt-1 font-medium text-gray-900">{formatArea(selectedProperty.landAreaSqft)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Circle Rate</p>
+                      <p className="mt-1 font-medium text-gray-900">
+                        {selectedProperty.circleRatePerSqft ? `${formatINR(selectedProperty.circleRatePerSqft, 0)}/sqft` : '-'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <Link
+                    to={`/properties/${selectedProperty.id}`}
+                    className="mt-3 inline-flex text-sm font-medium text-primary-600 hover:text-primary-700"
+                  >
+                    Open property detail
+                  </Link>
+                </div>
+
+                <div className="rounded-xl bg-white px-3 py-3">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Nearby Comp Benchmarks</p>
+                  {showNearbyComps ? (
+                    nearbyBenchmarksLoading ? (
+                      <p className="mt-2 text-sm text-gray-500">Loading comp benchmarks...</p>
+                    ) : nearbyBenchmarks?.found ? (
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-gray-400">Median Rate</p>
+                          <p className="mt-1 font-medium text-gray-900">
+                            {formatINR(nearbyBenchmarks.median_rate_per_sqft, 0)}/sqft
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-gray-400">Comp Count</p>
+                          <p className="mt-1 font-medium text-gray-900">{nearbyBenchmarksResponse.count || nearbyComps.length}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-gray-400">P25-P75 Band</p>
+                          <p className="mt-1 font-medium text-gray-900">
+                            {formatINR(nearbyBenchmarks.p25_rate_per_sqft, 0)} - {formatINR(nearbyBenchmarks.p75_rate_per_sqft, 0)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-gray-400">Search Radius</p>
+                          <p className="mt-1 font-medium text-gray-900">{nearbyBenchmarksResponse.radius_km || nearbyRadiusKm} km</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-gray-500">No comparable projects found near this property yet.</p>
+                    )
+                  ) : (
+                    <p className="mt-2 text-sm text-gray-500">Enable the nearby comp overlay to see pricing benchmarks.</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-dashed border-gray-300 px-4 py-8 text-center">
+                <p className="text-sm font-medium text-gray-700">Select a property from the list or the map.</p>
+                <p className="mt-1 text-sm text-gray-500">That will focus the map, draw the land coverage ring, and unlock nearby comps.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Mapped Properties</h2>
+              <p className="text-sm text-gray-500">Click a card to focus it on the map and activate overlays.</p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex-1 overflow-y-auto pr-1">
+            {filteredProperties.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-gray-300 px-4 py-10 text-center">
+                <p className="text-sm font-medium text-gray-700">No properties match these filters.</p>
+                <p className="mt-1 text-sm text-gray-500">Try clearing search or widening your city and zoning filters.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredProperties.map((property) => {
+                  const zoningMeta = ZONING_META[property.zoning] || ZONING_META.residential;
+                  const isSelected = property.id === selectedPropertyId;
+
+                  return (
+                    <div
+                      key={property.id}
+                      className={`rounded-2xl border px-4 py-4 transition ${
+                        isSelected
+                          ? 'border-primary-500 bg-primary-50 shadow-sm'
+                          : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPropertyId(property.id)}
+                        className="w-full text-left"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-gray-900">{property.name}</p>
+                            <p className="mt-1 text-sm text-gray-500">{property.city}, {property.state}</p>
+                          </div>
+                          <Badge className={zoningMeta.badgeClass}>{zoningMeta.label}</Badge>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">Area</p>
+                            <p className="mt-1 font-medium text-gray-900">{formatArea(property.landAreaSqft)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">Circle Rate</p>
+                            <p className="mt-1 font-medium text-gray-900">
+                              {property.circleRatePerSqft ? formatINR(property.circleRatePerSqft, 0) : '-'}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+
+                      <div className="mt-3 flex items-center justify-between text-sm">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPropertyId(property.id)}
+                          className="inline-flex items-center gap-1 text-gray-500 hover:text-gray-700"
+                        >
+                          <MapPin size={14} />
+                          Focus on map
+                        </button>
+                        <Link
+                          to={`/properties/${property.id}`}
+                          className="font-medium text-primary-600 hover:text-primary-700"
+                        >
+                          Open detail
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <section className="card overflow-hidden p-0">
+          <MapCanvas
+            properties={filteredProperties}
+            selectedProperty={selectedProperty}
+            setSelectedPropertyId={setSelectedPropertyId}
+            fitVersion={fitVersion}
+            mapIsLoading={mapIsLoading}
+            showClusters={showClusters}
+            showNearbyComps={showNearbyComps}
+            nearbyComps={nearbyComps}
+            nearbyRadiusKm={nearbyRadiusKm}
+            showDealHeat={showDealHeat}
+            heatLayers={heatLayers}
+            visibleStages={visibleStages}
+            nearbyCompsLoading={nearbyCompsLoading}
+          />
+        </section>
+      </div>
+    </div>
+  );
+}

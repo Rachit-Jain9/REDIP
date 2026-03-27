@@ -1,0 +1,138 @@
+const { query } = require('../config/database');
+const { createError } = require('../middleware/errorHandler');
+const { uploadFile, getSignedUrl: getSupabaseSignedUrl, deleteFile } = require('../config/supabase');
+const path = require('path');
+
+const uploadDocument = async (dealId, file, category, userId, description = '') => {
+  // Verify deal exists
+  const dealResult = await query('SELECT id FROM deals WHERE id = $1', [dealId]);
+  if (dealResult.rows.length === 0) {
+    throw createError('Deal not found.', 404);
+  }
+
+  if (!file || !file.buffer) {
+    throw createError('No file provided.', 400);
+  }
+
+  // Sanitize filename
+  const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const fileExt = path.extname(sanitizedName).toLowerCase();
+  const fileName = `${Date.now()}-${sanitizedName}`;
+
+  let fileUrl;
+  try {
+    const uploadResult = await uploadFile(file.buffer, fileName, file.mimetype, dealId);
+    fileUrl = uploadResult.path; // Store path, not full URL for signed URL generation
+  } catch (error) {
+    throw createError(`File upload failed: ${error.message}`, 500);
+  }
+
+  const result = await query(
+    `INSERT INTO documents (deal_id, name, file_url, file_type, file_size_bytes, doc_category, description, uploaded_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING *`,
+    [
+      dealId,
+      file.originalname,
+      fileUrl,
+      file.mimetype || fileExt.substring(1),
+      file.size || file.buffer.length,
+      category || 'other',
+      description || null,
+      userId,
+    ]
+  );
+
+  const doc = result.rows[0];
+
+  // Get uploader name
+  const userResult = await query('SELECT name FROM users WHERE id = $1', [userId]);
+  doc.uploaded_by_name = userResult.rows[0]?.name || 'Unknown';
+
+  return doc;
+};
+
+const getDocuments = async (dealId, category = null) => {
+  const conditions = ['d.deal_id = $1'];
+  const values = [dealId];
+  let paramCount = 2;
+
+  if (category) {
+    conditions.push(`d.doc_category = $${paramCount}`);
+    values.push(category);
+  }
+
+  const result = await query(
+    `SELECT d.*, u.name as uploaded_by_name
+     FROM documents d
+     LEFT JOIN users u ON d.uploaded_by = u.id
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY d.doc_category, d.created_at DESC`,
+    values
+  );
+
+  // Group by category
+  const grouped = {};
+  for (const doc of result.rows) {
+    if (!grouped[doc.doc_category]) {
+      grouped[doc.doc_category] = [];
+    }
+    grouped[doc.doc_category].push(doc);
+  }
+
+  return {
+    documents: result.rows,
+    grouped,
+    total: result.rows.length,
+  };
+};
+
+const deleteDocument = async (documentId, userId) => {
+  const result = await query('SELECT * FROM documents WHERE id = $1', [documentId]);
+
+  if (result.rows.length === 0) {
+    throw createError('Document not found.', 404);
+  }
+
+  const doc = result.rows[0];
+
+  // Delete from Supabase storage
+  try {
+    await deleteFile(doc.file_url);
+  } catch (error) {
+    console.warn('Could not delete file from storage:', error.message);
+    // Continue with DB deletion even if storage deletion fails
+  }
+
+  await query('DELETE FROM documents WHERE id = $1', [documentId]);
+
+  return { deleted: true, id: documentId };
+};
+
+const getSignedUrl = async (documentId) => {
+  const result = await query('SELECT * FROM documents WHERE id = $1', [documentId]);
+
+  if (result.rows.length === 0) {
+    throw createError('Document not found.', 404);
+  }
+
+  const doc = result.rows[0];
+
+  try {
+    const signedUrl = await getSupabaseSignedUrl(doc.file_url, 3600); // 1 hour expiry
+    return {
+      url: signedUrl,
+      expires_in: 3600,
+      document: doc,
+    };
+  } catch (error) {
+    throw createError(`Could not generate download URL: ${error.message}`, 500);
+  }
+};
+
+module.exports = {
+  uploadDocument,
+  getDocuments,
+  deleteDocument,
+  getSignedUrl,
+};
