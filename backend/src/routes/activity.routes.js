@@ -126,7 +126,7 @@ router.get(
   }
 );
 
-// POST /activities/:dealId
+// POST /activities (dealId in body)
 router.post(
   '/',
   authenticate,
@@ -156,38 +156,11 @@ router.post(
   }
 );
 
-// POST /activities/:dealId
-router.post(
-  '/:dealId',
-  authenticate,
-  requireRole('admin', 'analyst'),
-  activityWriteValidators,
-  handleValidation,
-  async (req, res, next) => {
-    try {
-      const activity = await activityService.logActivity(
-        req.params.dealId,
-        req.body.type,
-        req.body.description,
-        req.user.id,
-        req.body.activityDate,
-        req.body.nextFollowUp,
-        req.body.isImportant,
-        req.body.status,
-        req.body.priority
-      );
-      res.status(201).json({ success: true, message: 'Activity logged.', data: activity });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
 // PUT /activities/entry/:activityId
 router.put(
   '/entry/:activityId',
   authenticate,
-  requireRole('admin', 'analyst', 'viewer'),
+  requireRole('admin', 'analyst'),
   [
     body('type').optional().isIn(ACTIVITY_TYPES),
     body('description').optional().trim().notEmpty(),
@@ -217,7 +190,7 @@ router.put(
 router.patch(
   '/entry/:activityId/status',
   authenticate,
-  requireRole('admin', 'analyst', 'viewer'),
+  requireRole('admin', 'analyst'),
   [body('status').isIn(ACTIVITY_STATUSES)],
   handleValidation,
   async (req, res, next) => {

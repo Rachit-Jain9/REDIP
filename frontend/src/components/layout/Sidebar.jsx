@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Building2, HeartHandshake, Calculator, BarChart3,
-  FileText, Activity, Map, GitCompare, Settings, LogOut, ChevronLeft, ChevronRight,
+  FileText, Activity, Map, GitCompare, Settings, LogOut, ChevronLeft, ChevronRight, Brain,
 } from 'lucide-react';
 import { useState } from 'react';
 import useAuthStore from '../../store/authStore';
@@ -16,6 +16,7 @@ const navItems = [
   { to: '/activities', icon: Activity, label: 'Activities' },
   { to: '/compare', icon: GitCompare, label: 'Compare' },
   { to: '/reports', icon: Calculator, label: 'Reports' },
+  { to: '/intelligence', icon: Brain, label: 'Intelligence' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 

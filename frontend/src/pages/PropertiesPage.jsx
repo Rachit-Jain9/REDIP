@@ -338,8 +338,8 @@ export default function PropertiesPage() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
+          <div className="w-full max-w-lg rounded-xl bg-white shadow-xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
               <h2 className="text-xl font-semibold text-gray-900">Add Property</h2>
               <button
                 onClick={() => {
@@ -352,7 +352,8 @@ export default function PropertiesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <label className="mb-1 block text-sm font-medium text-gray-700">Property Name</label>
@@ -524,7 +525,8 @@ export default function PropertiesPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
+              </div>
+              <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0 rounded-b-xl">
                 <button
                   type="button"
                   onClick={() => {

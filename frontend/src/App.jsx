@@ -19,6 +19,7 @@ const ActivitiesPage = lazy(() => import('./pages/ActivitiesPage'));
 const DealComparePage = lazy(() => import('./pages/DealComparePage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const IntelligencePage = lazy(() => import('./pages/IntelligencePage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 function ProtectedRoute({ children }) {
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="compare" element={withSuspense(<DealComparePage />)} />
           <Route path="reports" element={withSuspense(<ReportsPage />)} />
           <Route path="settings" element={withSuspense(<SettingsPage />)} />
+          <Route path="intelligence" element={withSuspense(<IntelligencePage />)} />
         </Route>
         <Route path="*" element={withSuspense(<NotFoundPage />)} />
       </Routes>
