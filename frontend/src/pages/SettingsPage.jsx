@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Settings, User, Lock, Palette, Save, Loader2, DollarSign } from 'lucide-react';
+import { Settings, User, Lock, Palette, Save, Loader2, DollarSign, Brain } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import PageHeader from '../components/common/PageHeader';
 import { toast } from '../components/common/Toast';
 import { authAPI } from '../services/api';
+import { useMarketNotes, useSaveMarketNotes } from '../hooks/useIntelligence';
 
 const CURRENCY_OPTIONS = [
   { value: 'crores', label: 'Crores (Cr)' },
@@ -66,6 +67,38 @@ export default function SettingsPage() {
   const [currencyCode, setCurrencyCode] = useState(localStorage.getItem('pref_currencyCode') || 'INR');
   const [fxRate, setFxRate] = useState(localStorage.getItem('pref_fx_rate') || '');
   const selectedCurrency = CURRENCY_CODE_OPTIONS.find((c) => c.value === currencyCode);
+
+  // Market notes (admin only)
+  const { data: marketNotes } = useMarketNotes();
+  const saveMarketNotes = useSaveMarketNotes();
+  const [notesDraft, setNotesDraft] = useState({
+    micro_market: '',
+    slowdown: '',
+    strategic: '',
+  });
+
+  useEffect(() => {
+    if (marketNotes) {
+      setNotesDraft({
+        micro_market: (marketNotes.micro_market || []).join('\n'),
+        slowdown: (marketNotes.slowdown || []).join('\n'),
+        strategic: (marketNotes.strategic || []).join('\n'),
+      });
+    }
+  }, [marketNotes]);
+
+  const handleNotesSave = async (section) => {
+    const items = notesDraft[section]
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    try {
+      await saveMarketNotes.mutateAsync({ section, items });
+      toast.success('Notes saved — refresh the Intelligence page to see them.');
+    } catch {
+      toast.error('Failed to save notes');
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -300,6 +333,49 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Market Intelligence Notes — admin only */}
+      {user?.role === 'admin' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
+            <Brain size={18} />
+            Market Intelligence Notes
+          </h3>
+          <p className="text-xs text-gray-500 mb-4">
+            Enter your own verified market observations — sourced from broker calls, reports, or site visits.
+            Each line becomes one bullet in the Intelligence brief. These are labelled as admin-entered and never
+            fabricated by REDIP.
+          </p>
+
+          {[
+            { key: 'micro_market', label: 'Bengaluru Micro-Market Intelligence', placeholder: 'e.g. Whitefield absorption tightening due to new IT campus demand\ne.g. ORR rental yields compressing on oversupply' },
+            { key: 'slowdown', label: 'Demand Slowdown Indicators', placeholder: 'e.g. Sarjapur new launch absorption fell 15% last quarter per broker feedback\ne.g. Peripheral markets seeing extended unsold inventory' },
+            { key: 'strategic', label: 'Strategic Takeaways', placeholder: 'e.g. Focus underwriting on micro-markets with sub-18 month absorption cycles\ne.g. Avoid land deals in oversupplied peripheral zones until Q3 correction clears' },
+          ].map(({ key, label, placeholder }) => (
+            <div key={key} className="mb-5 last:mb-0">
+              <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+              <textarea
+                rows={4}
+                value={notesDraft[key]}
+                onChange={(e) => setNotesDraft((d) => ({ ...d, [key]: e.target.value }))}
+                placeholder={placeholder}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-y font-mono"
+              />
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-xs text-gray-400">One observation per line.</p>
+                <button
+                  onClick={() => handleNotesSave(key)}
+                  disabled={saveMarketNotes.isPending}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-medium transition disabled:opacity-50"
+                >
+                  {saveMarketNotes.isPending ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                  Save
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Currency Section */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

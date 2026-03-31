@@ -126,6 +126,8 @@ export const dashboardAPI = {
 // Intelligence
 export const intelligenceAPI = {
   getDailyBrief: (date) => api.get('/intelligence/daily-brief', { params: { date } }),
+  getMarketNotes: () => api.get('/intelligence/market-notes'),
+  saveMarketNotes: (section, items) => api.put('/intelligence/market-notes', { section, items }),
 };
 
 // Exports

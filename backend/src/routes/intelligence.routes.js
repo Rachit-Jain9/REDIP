@@ -1,8 +1,21 @@
 const express = require('express');
+const { body, validationResult } = require('express-validator');
 const intelligenceService = require('../services/intelligence.service');
 const { authenticate, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+const handleValidation = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors.array().map((e) => ({ field: e.path, message: e.msg })),
+    });
+  }
+  next();
+};
 
 router.get('/daily-brief', authenticate, async (req, res, next) => {
   try {
@@ -21,5 +34,39 @@ router.post('/daily-brief', authenticate, requireRole('admin', 'analyst'), async
     next(error);
   }
 });
+
+// GET /intelligence/market-notes — returns all three sections
+router.get('/market-notes', authenticate, async (req, res, next) => {
+  try {
+    const notes = await intelligenceService.getMarketNotes();
+    res.json({ success: true, data: notes });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /intelligence/market-notes — admin only, saves one section at a time
+router.put(
+  '/market-notes',
+  authenticate,
+  requireRole('admin'),
+  [
+    body('section').isIn(['micro_market', 'slowdown', 'strategic']).withMessage('Invalid section'),
+    body('items').isArray().withMessage('items must be an array'),
+  ],
+  handleValidation,
+  async (req, res, next) => {
+    try {
+      const saved = await intelligenceService.saveMarketNotes(
+        req.body.section,
+        req.body.items,
+        req.user.id
+      );
+      res.json({ success: true, message: 'Market notes saved.', data: saved });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 module.exports = router;

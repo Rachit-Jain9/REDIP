@@ -37,8 +37,17 @@ const buildUnavailableHeatmap = () =>
     insight: 'No verified external data source is configured for this micro-market yet.',
   }));
 
+const getNotesMap = async () => {
+  const result = await query('SELECT section, items FROM market_notes');
+  const map = {};
+  for (const row of result.rows) {
+    map[row.section] = row.items;
+  }
+  return map;
+};
+
 const buildBrief = async (briefDate) => {
-  const [topDealResult, developmentsResult, marketSignalResult] = await Promise.all([
+  const [topDealResult, developmentsResult, marketSignalResult, notes] = await Promise.all([
     query(
       `SELECT d.id, d.name, d.stage, d.priority, p.city, p.property_type,
         f.irr_pct, f.total_revenue_cr, f.npv_cr
@@ -69,6 +78,7 @@ const buildBrief = async (briefDate) => {
        FROM deals d
        LEFT JOIN financials f ON d.id = f.deal_id`
     ),
+    getNotesMap(),
   ]);
 
   const topDeal = topDealResult.rows[0];
@@ -77,12 +87,18 @@ const buildBrief = async (briefDate) => {
   const deadDeals = parseInt(signalRow.dead_deals, 10) || 0;
   const avgIrr = signalRow.avg_irr ? Number(signalRow.avg_irr) : null;
 
+  const microMarketNotes = notes.micro_market || [];
+  const slowdownNotes = notes.slowdown || [];
+  const strategicNotes = notes.strategic || [];
+  const hasManualNotes = microMarketNotes.length > 0 || slowdownNotes.length > 0 || strategicNotes.length > 0;
+
   return {
     title: `Daily Real Estate Intelligence Brief - ${briefDate}`,
     generatedDate: briefDate,
     mode: 'verified_data_required',
     hasVerifiedMarketData: false,
-    notes: 'REDIP will not generate external market claims until verified data sources are connected. The sections below reflect either real internal pipeline data or an explicit not-configured state.',
+    hasManualNotes,
+    notes: 'REDIP will not generate external market claims until verified data sources are connected. The sections below reflect either real internal pipeline data, admin-entered observations, or an explicit not-configured state.',
     verifiedSourceRequirements: VERIFIED_SOURCE_REQUIREMENTS,
     dealOfDay: topDeal
       ? {
@@ -118,32 +134,29 @@ const buildBrief = async (briefDate) => {
       ],
       sourceType: 'internal_pipeline_only',
     },
-    bengaluruMicroMarketIntelligence: [],
+    bengaluruMicroMarketIntelligence: microMarketNotes,
     bengaluruDemandHeatmap: buildUnavailableHeatmap(),
-    demandSlowdownIndicators: [
-      'Awaiting verified external transaction, inventory, and absorption sources before REDIP will publish slowdown signals by micro-market.',
-      deadDeals > 0
-        ? 'Internal dead-deal count is non-zero. Review failed opportunities for recurring pricing, title, or diligence issues.'
-        : 'No internal dead-deal trend is currently available as a slowdown signal.',
-    ],
-    strategicTakeaways: [
-      'Use REDIP today for internal pipeline discipline, underwriting, and workflow execution.',
-      'Connect verified Bengaluru-first data sources before relying on the intelligence brief for market-facing investment conclusions.',
-    ],
-    bottomLine: 'No verified external market feeds are configured yet, so REDIP is correctly withholding market intelligence rather than fabricating it.',
+    demandSlowdownIndicators: slowdownNotes.length > 0
+      ? slowdownNotes
+      : [
+          'Awaiting verified external transaction, inventory, and absorption sources before REDIP will publish slowdown signals by micro-market.',
+          deadDeals > 0
+            ? 'Internal dead-deal count is non-zero. Review failed opportunities for recurring pricing, title, or diligence issues.'
+            : 'No internal dead-deal trend is currently available as a slowdown signal.',
+        ],
+    strategicTakeaways: strategicNotes.length > 0
+      ? strategicNotes
+      : [
+          'Use REDIP today for internal pipeline discipline, underwriting, and workflow execution.',
+          'Connect verified Bengaluru-first data sources before relying on the intelligence brief for market-facing investment conclusions.',
+        ],
+    bottomLine: hasManualNotes
+      ? 'This brief combines real internal pipeline data with admin-entered market observations. External verified feeds are not yet connected.'
+      : 'No verified external market feeds are configured yet, so REDIP is correctly withholding market intelligence rather than fabricating it.',
   };
 };
 
 const getDailyBrief = async (userId, date = new Date().toISOString().slice(0, 10)) => {
-  const existing = await query(
-    'SELECT content FROM intelligence_briefs WHERE brief_date = $1 AND market_scope = $2 LIMIT 1',
-    [date, 'bengaluru_india']
-  );
-
-  if (existing.rows.length > 0 && existing.rows[0].content?.mode === 'verified_data_required') {
-    return existing.rows[0].content;
-  }
-
   const brief = await buildBrief(date);
 
   await query(
@@ -157,6 +170,40 @@ const getDailyBrief = async (userId, date = new Date().toISOString().slice(0, 10
   return brief;
 };
 
+const getMarketNotes = async () => {
+  const result = await query('SELECT section, items, updated_at FROM market_notes');
+  const notes = { micro_market: [], slowdown: [], strategic: [] };
+  for (const row of result.rows) {
+    if (notes[row.section] !== undefined) {
+      notes[row.section] = row.items;
+    }
+  }
+  return notes;
+};
+
+const saveMarketNotes = async (section, items, userId) => {
+  const VALID_SECTIONS = ['micro_market', 'slowdown', 'strategic'];
+  if (!VALID_SECTIONS.includes(section)) {
+    throw new Error(`Invalid section: ${section}`);
+  }
+  if (!Array.isArray(items)) {
+    throw new Error('items must be an array');
+  }
+  const cleaned = items.map((s) => String(s).trim()).filter(Boolean);
+
+  await query(
+    `INSERT INTO market_notes (section, items, updated_by, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (section)
+     DO UPDATE SET items = EXCLUDED.items, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [section, JSON.stringify(cleaned), userId || null]
+  );
+
+  return cleaned;
+};
+
 module.exports = {
   getDailyBrief,
+  getMarketNotes,
+  saveMarketNotes,
 };
