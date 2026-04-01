@@ -5,7 +5,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-const ASSET_CLASSES = ['residential_apartments', 'plotted_development', 'commercial_office', 'retail', 'industrial'];
+const ASSET_CLASSES = ['residential_apartments', 'plotted_development', 'commercial_office', 'retail', 'industrial', 'hospitality'];
 
 const handleValidation = (req, res, next) => {
   const errors = validationResult(req);
@@ -23,32 +23,41 @@ const baseValidation = [
   body('assetClass').optional().isIn(ASSET_CLASSES).withMessage('Invalid asset class'),
 ];
 
-// Residential / Plotted validation
-const residentialValidation = [
-  body('plotAreaSqft').if(body('assetClass').not().isIn(['plotted_development', 'commercial_office', 'retail', 'industrial']))
-    .isFloat({ min: 1 }).withMessage('Plot area must be positive'),
+const modelValidation = [
+  // Land & site
+  body('plotAreaSqft').optional().isFloat({ min: 1 }),
   body('fsi').optional().isFloat({ min: 0.1, max: 20 }),
   body('loadingFactor').optional().isFloat({ min: 0.05, max: 1 }),
+  // Construction
   body('constructionCostPerSqft').optional().isFloat({ min: 1 }),
-  body('sellingRatePerSqft').optional().isFloat({ min: 1 }),
-  body('landCostCr').optional().isFloat({ min: 0 }),
-  body('approvalCostCr').optional().isFloat({ min: 0 }),
-  body('approvalCostPerSqft').optional().isFloat({ min: 0 }),
   body('constructionStartMonths').optional().isInt({ min: 0, max: 60 }),
   body('constructionEndMonths').optional().isInt({ min: 1, max: 120 }),
+  body('contingencyPct').optional().isFloat({ min: 0, max: 25 }),
+  // Soft costs
+  body('approvalCostCr').optional().isFloat({ min: 0 }),
+  body('approvalCostPerSqft').optional().isFloat({ min: 0 }),
+  body('architectFeePct').optional().isFloat({ min: 0, max: 10 }),
+  body('pmcFeePct').optional().isFloat({ min: 0, max: 10 }),
+  // Revenue & pricing
+  body('sellingRatePerSqft').optional().isFloat({ min: 1 }),
+  body('landCostCr').optional().isFloat({ min: 0 }),
   body('marketingCostPct').optional().isFloat({ min: 0, max: 100 }),
-  body('financeCostPct').optional().isFloat({ min: 0, max: 100 }),
+  body('pricingEscalationPct').optional().isFloat({ min: 0, max: 50 }),
   body('developerMarginPct').optional().isFloat({ min: 0, max: 100 }),
+  // Financing & capital stack
+  body('financeCostPct').optional().isFloat({ min: 0, max: 100 }),
+  body('debtLTV').optional().isFloat({ min: 0, max: 0.80 }),
+  body('debtRatePct').optional().isFloat({ min: 0, max: 30 }),
+  // Project timeline
   body('projectDurationMonths').optional().isInt({ min: 6, max: 120 }),
   body('discountRatePct').optional().isFloat({ min: 0, max: 100 }),
-  body('pricingEscalationPct').optional().isFloat({ min: 0, max: 50 }),
   // Plotted-specific
   body('totalLandSqft').optional().isFloat({ min: 1 }),
   body('saleableLandPct').optional().isFloat({ min: 10, max: 90 }),
   body('avgPlotSizeSqft').optional().isFloat({ min: 100 }),
   body('sellingRatePerSqyd').optional().isFloat({ min: 1 }),
   body('devCostPerSqft').optional().isFloat({ min: 0 }),
-  // Income-specific
+  // Income asset specific
   body('leasableAreaSqft').optional().isFloat({ min: 1 }),
   body('baseRentPerSqftMonth').optional().isFloat({ min: 1 }),
   body('rentEscalationPct').optional().isFloat({ min: 0, max: 30 }),
@@ -63,6 +72,17 @@ const residentialValidation = [
   body('interestRatePct').optional().isFloat({ min: 0, max: 50 }),
   body('anchorPct').optional().isFloat({ min: 0, max: 100 }),
   body('anchorRentDiscount').optional().isFloat({ min: 0, max: 80 }),
+  // Hospitality-specific
+  body('keys').optional().isInt({ min: 1, max: 5000 }),
+  body('adr').optional().isFloat({ min: 1 }),
+  body('stabilizedOccPct').optional().isFloat({ min: 10, max: 100 }),
+  body('constructionCostPerKey').optional().isFloat({ min: 0 }),
+  body('preOpeningCostPerKey').optional().isFloat({ min: 0 }),
+  body('gopMarginPct').optional().isFloat({ min: 0, max: 100 }),
+  body('ebitdaMarginPct').optional().isFloat({ min: 0, max: 100 }),
+  body('fbRevPct').optional().isFloat({ min: 0, max: 100 }),
+  body('otherRevPct').optional().isFloat({ min: 0, max: 100 }),
+  body('adrGrowthPct').optional().isFloat({ min: 0, max: 30 }),
 ];
 
 // POST /financials/:dealId/calculate
@@ -70,7 +90,7 @@ router.post(
   '/:dealId/calculate',
   authenticate,
   requireRole('admin', 'analyst'),
-  [...baseValidation, ...residentialValidation],
+  [...baseValidation, ...modelValidation],
   handleValidation,
   async (req, res, next) => {
     try {
@@ -97,7 +117,7 @@ router.put(
   '/:dealId',
   authenticate,
   requireRole('admin', 'analyst'),
-  [...baseValidation, ...residentialValidation],
+  [...baseValidation, ...modelValidation],
   handleValidation,
   async (req, res, next) => {
     try {
@@ -114,6 +134,28 @@ router.post('/:dealId/sensitivity', authenticate, async (req, res, next) => {
   try {
     const matrix = await financialService.runSensitivity(req.params.dealId, req.body);
     res.json({ success: true, data: matrix });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /financials/:dealId/scenarios — returns base/bull/bear scenario comparison
+router.get('/:dealId/scenarios', authenticate, async (req, res, next) => {
+  try {
+    const scenarios = await financialService.getScenarios(req.params.dealId);
+    res.json({ success: true, data: scenarios });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /financials/:dealId/export/csv — download financial model as CSV
+router.get('/:dealId/export/csv', authenticate, async (req, res, next) => {
+  try {
+    const csv = await financialService.exportFinancialCSV(req.params.dealId);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="financial-model-${req.params.dealId}.csv"`);
+    res.send(csv);
   } catch (error) {
     next(error);
   }

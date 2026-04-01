@@ -24,9 +24,11 @@ const ASSET_CLASSES = [
   { value: 'commercial_office',      label: 'Commercial Office' },
   { value: 'retail',                 label: 'Retail' },
   { value: 'industrial',             label: 'Industrial' },
+  { value: 'hospitality',            label: 'Hospitality' },
 ];
 
-const INCOME_CLASSES = new Set(['commercial_office', 'retail', 'industrial']);
+const INCOME_CLASSES     = new Set(['commercial_office', 'retail', 'industrial']);
+const HOSPITALITY_CLASSES = new Set(['hospitality']);
 
 // Per-class input field definitions
 const FIELD_DEFS = {
@@ -41,17 +43,22 @@ const FIELD_DEFS = {
     { name: 'marketingCostPct',         label: 'Marketing Cost (% of revenue)',     type: 'number', step: '0.1',  placeholder: '5' },
     { name: 'financeCostPct',           label: 'Finance Cost (% pa)',               type: 'number', step: '0.1',  placeholder: '12' },
     { name: 'developerMarginPct',       label: 'Developer Margin (%)',              type: 'number', step: '0.1',  placeholder: '20' },
-    { name: 'pricingEscalationPct',     label: 'Pricing Escalation (% pa)',         type: 'number', step: '0.1',  placeholder: '0', hint: 'Expected annual price appreciation during project' },
-    { name: 'projectDurationMonths',    label: 'Project Duration (months)',         type: 'number', placeholder: '36' },
-    { name: 'constructionStartMonths',  label: 'Construction Start (month)',        type: 'number', placeholder: '3',  hint: 'Month from project start when construction begins (after approvals). E.g. 3 = Q1 end.' },
-    { name: 'constructionEndMonths',    label: 'Construction End (month)',          type: 'number', placeholder: '30', hint: 'Month from project start when structure is complete. Revenue peaks here.' },
-    { name: 'discountRatePct',          label: 'Discount Rate (%)',                 type: 'number', step: '0.1',  placeholder: '14' },
+    { name: 'contingencyPct',            label: 'Contingency (% of construction)',   type: 'number', step: '0.5',  placeholder: '5',  hint: 'Cost overrun buffer. Institutional: 5–8%' },
+    { name: 'architectFeePct',           label: 'Architect Fee (% of construction)', type: 'number', step: '0.25', placeholder: '2',  hint: 'Architecture and design fees. Typically 1.5–3%' },
+    { name: 'pmcFeePct',                 label: 'PMC Fee (% of construction)',       type: 'number', step: '0.25', placeholder: '1.5', hint: 'Project Management Consultant fee. Typically 1–2%' },
+    { name: 'debtLTV',                   label: 'Debt LTV (0–0.80)',                 type: 'number', step: '0.05', placeholder: '0',  hint: '0 = all equity. 0.65 = 65% construction finance' },
+    { name: 'debtRatePct',               label: 'Debt Rate (% pa)',                  type: 'number', step: '0.25', placeholder: '14', hint: 'Construction finance rate. Typically 12–16% pa' },
+    { name: 'pricingEscalationPct',      label: 'Pricing Escalation (% pa)',         type: 'number', step: '0.1',  placeholder: '0', hint: 'Expected annual price appreciation during project' },
+    { name: 'projectDurationMonths',     label: 'Project Duration (months)',         type: 'number', placeholder: '36' },
+    { name: 'constructionStartMonths',   label: 'Construction Start (month)',        type: 'number', placeholder: '3',  hint: 'Month from project start when construction begins (after approvals). E.g. 3 = Q1 end.' },
+    { name: 'constructionEndMonths',     label: 'Construction End (month)',          type: 'number', placeholder: '30', hint: 'Month from project start when structure is complete. Revenue peaks here.' },
+    { name: 'discountRatePct',           label: 'Discount Rate (%)',                 type: 'number', step: '0.1',  placeholder: '14' },
   ],
   plotted_development: [
     { name: 'totalLandSqft',          label: 'Total Land Area (sqft)',          type: 'number', placeholder: '435600', hint: '1 acre = 43,560 sqft' },
     { name: 'saleableLandPct',        label: 'Saleable Land (%)',               type: 'number', step: '1',    placeholder: '55', hint: 'After roads, parks & amenities (typically 50–60%)' },
     { name: 'avgPlotSizeSqft',        label: 'Avg Plot Size (sqft)',            type: 'number', placeholder: '1200', hint: '1200 sqft = ~133 sqyd' },
-    { name: 'sellingRatePerSqyd',     label: 'Selling Rate (₹/sqyd)',           type: 'number', placeholder: '12000' },
+    { name: 'sellingRatePerSqft',      label: 'Selling Rate (₹/sqft)',           type: 'number', placeholder: '1350', hint: '₹1,350/sqft ≈ ₹12,150/sqyd. Convert: ÷ 9 to get sqft rate' },
     { name: 'landCostCr',             label: 'Land Cost (₹ Cr)',                type: 'number', step: '0.01', placeholder: '20' },
     { name: 'devCostPerSqft',         label: 'Development Cost (₹/sqft land)', type: 'number', placeholder: '250', hint: 'Roads, utilities, landscaping on total land area' },
     { name: 'approvalCostPerSqft',    label: 'Approval Cost (₹/sqft land)',     type: 'number', step: '5',    placeholder: '80', hint: 'BMRDA layout approval, DTCP sanction — typically ₹50–200/sqft of total land' },
@@ -115,12 +122,35 @@ const FIELD_DEFS = {
     { name: 'interestRatePct',        label: 'Interest Rate (% pa)',            type: 'number', step: '0.25', placeholder: '10' },
     { name: 'discountRatePct',        label: 'Discount Rate (%)',               type: 'number', step: '0.1',  placeholder: '13' },
   ],
+  hospitality: [
+    { name: 'keys',                    label: 'Number of Keys (rooms)',               type: 'number', placeholder: '100' },
+    { name: 'constructionCostPerKey',  label: 'Construction Cost (₹/key)',            type: 'number', placeholder: '8000000', hint: 'All-in cost per key incl. FF&E. Budget: ₹50L–1.5Cr/key' },
+    { name: 'preOpeningCostPerKey',    label: 'Pre-Opening Cost (₹/key)',             type: 'number', placeholder: '300000',  hint: 'Staff training, launch marketing, consumables. Typically ₹2–5L/key' },
+    { name: 'landCostCr',              label: 'Land Cost (₹ Cr)',                     type: 'number', step: '0.01', placeholder: '20' },
+    { name: 'approvalCostCr',          label: 'Approval Cost (₹ Cr)',                 type: 'number', step: '0.01', placeholder: '2' },
+    { name: 'adr',                     label: 'Average Daily Rate (₹/night)',         type: 'number', placeholder: '6000', hint: 'Stabilized ADR. Bengaluru mid-scale: ₹4k–8k; luxury: ₹10k–25k' },
+    { name: 'stabilizedOccPct',        label: 'Stabilized Occupancy (%)',             type: 'number', step: '1',    placeholder: '65', hint: 'Y3+ occupancy. Bengaluru hotels: 60–75% stabilized' },
+    { name: 'adrGrowthPct',            label: 'ADR Growth (% pa)',                    type: 'number', step: '0.5',  placeholder: '5' },
+    { name: 'fbRevPct',                label: 'F&B Revenue (% of rooms rev)',         type: 'number', step: '1',    placeholder: '25', hint: 'Full service: 25–40%; limited service: 10–15%' },
+    { name: 'otherRevPct',             label: 'Other Revenue (% of rooms rev)',       type: 'number', step: '1',    placeholder: '10', hint: 'Spa, events, parking, laundry' },
+    { name: 'gopMarginPct',            label: 'GOP Margin (% of total revenue)',      type: 'number', step: '1',    placeholder: '35', hint: 'Gross Operating Profit. India branded hotels: 30–45%' },
+    { name: 'ebitdaMarginPct',         label: 'EBITDA Margin (% of total revenue)',   type: 'number', step: '1',    placeholder: '28', hint: 'After management fee & reserve. India hotels: 22–32%' },
+    { name: 'exitCapRate',             label: 'Exit Cap Rate (%)',                    type: 'number', step: '0.25', placeholder: '9',  hint: 'Hotel exit caps India: 8–11%' },
+    { name: 'holdPeriodYears',         label: 'Hold Period (years)',                  type: 'number', step: '1',    placeholder: '8' },
+    { name: 'projectDurationMonths',   label: 'Construction Duration (months)',       type: 'number', placeholder: '30', hint: 'Typical hotel construction: 24–36 months' },
+    { name: 'debtCoverage',            label: 'Debt LTV (0–1)',                       type: 'number', step: '0.05', placeholder: '0.55' },
+    { name: 'interestRatePct',         label: 'Interest Rate (% pa)',                 type: 'number', step: '0.25', placeholder: '10.5' },
+    { name: 'contingencyPct',          label: 'Contingency (% of construction)',      type: 'number', step: '1',    placeholder: '5' },
+    { name: 'discountRatePct',         label: 'Discount Rate (%)',                    type: 'number', step: '0.1',  placeholder: '15' },
+  ],
 };
 
 const DEFAULT_VALUES = {
   residential_apartments: {
     loadingFactor: '0.65', marketingCostPct: '5', financeCostPct: '12',
     developerMarginPct: '20', pricingEscalationPct: '0',
+    contingencyPct: '5', architectFeePct: '2', pmcFeePct: '1.5',
+    debtLTV: '0', debtRatePct: '14',
     projectDurationMonths: '36', discountRatePct: '14',
     constructionStartMonths: '3', constructionEndMonths: '30',
   },
@@ -146,6 +176,12 @@ const DEFAULT_VALUES = {
     rentEscalationPct: '4', vacancyPct: '7', opexPct: '15',
     exitCapRate: '8.5', holdPeriodYears: '7',
     projectDurationMonths: '18', debtCoverage: '0.65', interestRatePct: '10', discountRatePct: '13',
+  },
+  hospitality: {
+    stabilizedOccPct: '65', adrGrowthPct: '5', fbRevPct: '25', otherRevPct: '10',
+    gopMarginPct: '35', ebitdaMarginPct: '28', exitCapRate: '9',
+    holdPeriodYears: '8', projectDurationMonths: '30',
+    debtCoverage: '0.55', interestRatePct: '10.5', contingencyPct: '5', discountRatePct: '15',
   },
 };
 
@@ -228,6 +264,8 @@ function normalizeFinancials(financials) {
       dscr: toNumber(kpis.dscr ?? financials.dscr),
       exitValue: toNumber(kpis.exitValue ?? financials.exit_value_cr),
       entryValue: toNumber(kpis.entryValue ?? financials.entry_value_cr),
+      revPAR: toNumber(kpis.revPAR),
+      gopMargin: toNumber(kpis.gopMargin),
     },
     areas: {
       grossBuiltUp: toNumber(areas.grossBuiltUp ?? financials.gross_area_sqft),
@@ -235,6 +273,7 @@ function normalizeFinancials(financials) {
       carpet: toNumber(areas.carpet ?? financials.carpet_area_sqft),
       superBuiltUp: toNumber(areas.superBuiltUp ?? financials.super_builtup_area_sqft),
       leasable: toNumber(areas.leasable),
+      keys: areas.keys,
       totalPlots: areas.totalPlots,
       avgPlotSizeSqft: toNumber(areas.avgPlotSizeSqft),
     },
@@ -244,6 +283,10 @@ function normalizeFinancials(financials) {
       gst: toNumber(costs.gst ?? financials.gst_cost_cr),
       stampDuty: toNumber(costs.stampDuty ?? financials.stamp_duty_cr),
       approval: toNumber(costs.approval ?? financials.approval_cost_cr),
+      contingency: toNumber(costs.contingency),
+      architecture: toNumber(costs.architecture),
+      pmc: toNumber(costs.pmc),
+      preOpening: toNumber(costs.preOpening),
       marketing: toNumber(costs.marketing ?? financials.marketing_cost_cr),
       finance: toNumber(costs.finance ?? financials.finance_cost_cr),
       tenantImprovements: toNumber(costs.tenantImprovements),
@@ -257,6 +300,10 @@ function normalizeFinancials(financials) {
       annualNOI: toNumber(revenue.annualNOI ?? financials.noi_cr),
       stabilizedNOI: toNumber(revenue.stabilizedNOI ?? financials.stabilized_noi_cr),
       exitValue: toNumber(revenue.exitValue ?? financials.exit_value_cr),
+      roomsRevenue: toNumber(revenue.roomsRevenue),
+      fbRevenue: toNumber(revenue.fbRevenue),
+      gop: toNumber(revenue.gop),
+      ebitda: toNumber(revenue.ebitda),
     },
     cashFlows: cashFlowSeries.map((cf, i) => ({ quarter: cf.quarter ?? i, value: toNumber(cf.net) ?? 0 })),
     yearlyCashFlows: (financials.cash_flows?.yearly || []).map((cf) => ({ year: cf.year, label: cf.label, value: toNumber(cf.net) ?? 0 })),
@@ -348,6 +395,18 @@ function InputForm({ initialValues, assetClass, deal, onSubmit, isLoading }) {
 
 function KPICards({ kpis, assetClass }) {
   const isIncome = INCOME_CLASSES.has(assetClass);
+  const isHospitality = HOSPITALITY_CLASSES.has(assetClass);
+
+  if (isHospitality) {
+    return (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard title="RevPAR" value={kpis.revPAR != null ? formatINR(kpis.revPAR, 0) : '-'} subtitle="₹/key/night (stabilized)" icon={IndianRupee} />
+        <StatCard title="EBITDA" value={formatCrores(kpis.noi)} subtitle="Stabilized EBITDA / yr" icon={TrendingUp} />
+        <StatCard title="IRR" value={formatPct(kpis.irr)} subtitle="Unlevered, through exit" icon={Percent} />
+        <StatCard title="Exit Value" value={formatCrores(kpis.exitValue)} subtitle="EBITDA / exit cap rate" icon={DollarSign} />
+      </div>
+    );
+  }
 
   if (isIncome) {
     return (
@@ -365,13 +424,13 @@ function KPICards({ kpis, assetClass }) {
       <StatCard title="IRR" value={formatPct(kpis.irr)} subtitle="Internal Rate of Return" icon={TrendingUp} />
       <StatCard title="NPV" value={formatCrores(kpis.npv)} subtitle="Net Present Value" icon={IndianRupee} />
       <StatCard
-        title={assetClass === 'plotted_development' ? 'Equity Multiple' : 'Equity Multiple'}
+        title="Equity Multiple"
         value={kpis.equityMultiple != null ? `${kpis.equityMultiple.toFixed(2)}x` : '-'}
         subtitle="Return on equity invested"
         icon={DollarSign}
       />
       <StatCard
-        title={assetClass === 'plotted_development' ? 'RLV' : 'RLV'}
+        title="RLV"
         value={formatCrores(kpis.rlv)}
         subtitle="Residual Land Value"
         icon={Percent}
@@ -387,6 +446,9 @@ function AreaBreakdown({ areas, assetClass }) {
     rows.push({ label: 'Saleable Land', value: formatArea(areas.saleable) });
     if (areas.totalPlots) rows.push({ label: 'Total Plots', value: areas.totalPlots.toLocaleString('en-IN') });
     if (areas.avgPlotSizeSqft) rows.push({ label: 'Avg Plot Size', value: formatArea(areas.avgPlotSizeSqft) });
+  } else if (HOSPITALITY_CLASSES.has(assetClass)) {
+    if (areas.keys) rows.push({ label: 'Keys (rooms)', value: areas.keys.toLocaleString('en-IN') });
+    if (areas.grossBuiltUp) rows.push({ label: 'Est. GFA (incl. common areas)', value: formatArea(areas.grossBuiltUp) });
   } else if (INCOME_CLASSES.has(assetClass)) {
     rows.push({ label: 'Leasable Area', value: formatArea(areas.leasable) });
     rows.push({ label: 'Gross Built-Up (est.)', value: formatArea(areas.grossBuiltUp) });
@@ -416,8 +478,12 @@ function CostBreakdown({ costs, assetClass }) {
     { label: 'Land Cost',              value: costs.land },
     { label: assetClass === 'plotted_development' ? 'Development Cost' : 'Construction Cost', value: costs.construction },
     { label: 'GST',                    value: costs.gst },
+    { label: 'Contingency',            value: costs.contingency },
     { label: 'Stamp Duty',             value: costs.stampDuty },
     { label: 'Approval Cost',          value: costs.approval },
+    { label: 'Architecture Fees',      value: costs.architecture },
+    { label: 'PMC Fees',               value: costs.pmc },
+    { label: 'Pre-Opening Costs',      value: costs.preOpening },
     { label: 'Marketing Cost',         value: costs.marketing },
     { label: 'Finance Cost',           value: costs.finance },
     { label: 'Tenant Improvements',    value: costs.tenantImprovements },
@@ -445,23 +511,40 @@ function CostBreakdown({ costs, assetClass }) {
 
 function RevenuePanel({ revenue, kpis, assetClass }) {
   const isIncome = INCOME_CLASSES.has(assetClass);
-  const rows = isIncome
-    ? [
-        { label: 'Annual NOI (Stabilized)', value: formatCrores(revenue.annualNOI) },
-        { label: 'Entry Value',              value: formatCrores(kpis.entryValue) },
-        { label: 'Exit Value',               value: formatCrores(kpis.exitValue) },
-        ...(kpis.dscr != null ? [{ label: 'DSCR', value: `${kpis.dscr.toFixed(2)}x` }] : []),
-      ]
-    : [
-        { label: 'Revenue',  value: formatCrores(revenue.totalRevenue) },
-        { label: 'Profit',   value: formatCrores(revenue.profit) },
-        { label: 'Margin',   value: formatPct(revenue.margin) },
-      ];
+  const isHospitality = HOSPITALITY_CLASSES.has(assetClass);
+
+  let rows, panelTitle;
+  if (isHospitality) {
+    panelTitle = 'Hotel P&L (Stabilized Year)';
+    rows = [
+      { label: 'Rooms Revenue',   value: formatCrores(revenue.roomsRevenue) },
+      { label: 'F&B Revenue',     value: formatCrores(revenue.fbRevenue) },
+      { label: 'Total Revenue',   value: formatCrores(revenue.totalRevenue) },
+      { label: 'GOP',             value: formatCrores(revenue.gop) },
+      { label: 'EBITDA',          value: formatCrores(revenue.ebitda) },
+      ...(kpis.dscr != null ? [{ label: 'DSCR', value: `${kpis.dscr.toFixed(2)}x` }] : []),
+    ];
+  } else if (isIncome) {
+    panelTitle = 'Operating Summary';
+    rows = [
+      { label: 'Annual NOI (Stabilized)', value: formatCrores(revenue.annualNOI) },
+      { label: 'Entry Value',              value: formatCrores(kpis.entryValue) },
+      { label: 'Exit Value',               value: formatCrores(kpis.exitValue) },
+      ...(kpis.dscr != null ? [{ label: 'DSCR', value: `${kpis.dscr.toFixed(2)}x` }] : []),
+    ];
+  } else {
+    panelTitle = 'Revenue & Profit';
+    rows = [
+      { label: 'Revenue',  value: formatCrores(revenue.totalRevenue) },
+      { label: 'Profit',   value: formatCrores(revenue.profit) },
+      { label: 'Margin',   value: formatPct(revenue.margin) },
+    ];
+  }
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
       <h3 className="text-sm font-semibold text-gray-900 mb-3">
-        {isIncome ? 'Operating Summary' : 'Revenue & Profit'}
+        {panelTitle}
       </h3>
       <div className="space-y-2">
         {rows.filter((r) => r.value && r.value !== '-').map((row) => (
@@ -547,7 +630,8 @@ function getIRRColor(irr) {
 function SensitivityTable({ sensitivity, assetClass }) {
   if (!sensitivity?.grid?.length) return null;
   const { sellingRates, constructionCosts, grid, axis } = sensitivity;
-  const isIncome = INCOME_CLASSES.has(assetClass);
+  const isIncome      = INCOME_CLASSES.has(assetClass);
+  const isHospitality = HOSPITALITY_CLASSES.has(assetClass);
   const rowLabel  = axis?.[0] || (isIncome ? 'Exit Cap Rate (%)' : 'Constr. Cost/sqft');
   const colHeader = axis?.[1] || (isIncome ? 'Base Rent/sqft/mo' : 'Selling Rate/sqft');
 
@@ -565,7 +649,7 @@ function SensitivityTable({ sensitivity, assetClass }) {
               <th className="px-2 py-1.5 text-left font-medium text-gray-500 border-b whitespace-nowrap">↓ {rowLabel.split(' ')[0]} \ {colHeader.split(' ')[0]} →</th>
               {sellingRates.map((r) => (
                 <th key={r} className="px-2 py-1.5 text-center font-medium text-gray-500 border-b whitespace-nowrap">
-                  {isIncome ? r : formatINR(r, 0)}
+                  {isHospitality ? formatINR(r, 0) : isIncome ? r : formatINR(r, 0)}
                 </th>
               ))}
             </tr>
@@ -574,7 +658,7 @@ function SensitivityTable({ sensitivity, assetClass }) {
             {constructionCosts.map((cost, ri) => (
               <tr key={cost}>
                 <td className="px-2 py-1.5 font-medium text-gray-700 border-b whitespace-nowrap">
-                  {isIncome ? `${cost}%` : formatINR(cost, 0)}
+                  {isHospitality ? `${cost}%` : isIncome ? `${cost}%` : formatINR(cost, 0)}
                 </td>
                 {grid[ri]?.map((irr, ci) => (
                   <td key={ci} className={`px-2 py-1.5 text-center font-medium border-b ${getIRRColor(irr)}`}>

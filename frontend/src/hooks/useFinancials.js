@@ -32,3 +32,12 @@ export function useRunSensitivity() {
     },
   });
 }
+
+export function useScenarios(dealId) {
+  return useQuery({
+    queryKey: ['scenarios', dealId],
+    queryFn: () => financialsAPI.scenarios(dealId).then((r) => r.data.data),
+    enabled: !!dealId,
+    staleTime: 5 * 60 * 1000,
+  });
+}

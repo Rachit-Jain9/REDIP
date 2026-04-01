@@ -84,6 +84,8 @@ export const financialsAPI = {
   calculate: (dealId, data) => api.post(`/financials/${dealId}/calculate`, data),
   update: (dealId, data) => api.put(`/financials/${dealId}`, data),
   sensitivity: (dealId, data) => api.post(`/financials/${dealId}/sensitivity`, data),
+  scenarios: (dealId) => api.get(`/financials/${dealId}/scenarios`),
+  exportCSV: (dealId) => api.get(`/financials/${dealId}/export/csv`, { responseType: 'blob' }),
 };
 
 // Comps

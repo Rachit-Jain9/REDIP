@@ -1,6 +1,6 @@
 const { query } = require('../config/database');
 const { createError } = require('../middleware/errorHandler');
-const { uploadFile, getSignedUrl: getSupabaseSignedUrl, deleteFile } = require('../config/supabase');
+const { uploadFile, getDownloadUrl, deleteStorageFile } = require('../config/storage');
 const path = require('path');
 
 const getDocumentDealOptions = async () => {
@@ -49,7 +49,7 @@ const uploadDocument = async (dealId, file, category, userId, description = '') 
   let fileUrl;
   try {
     const uploadResult = await uploadFile(file.buffer, fileName, file.mimetype, dealId);
-    fileUrl = uploadResult.path; // Store path, not full URL for signed URL generation
+    fileUrl = uploadResult.url;
   } catch (error) {
     throw createError(`File upload failed: ${error.message}`, 500);
   }
@@ -128,9 +128,8 @@ const deleteDocument = async (documentId, userId) => {
 
   const doc = result.rows[0];
 
-  // Delete from Supabase storage
   try {
-    await deleteFile(doc.file_url);
+    await deleteStorageFile(doc.file_url);
   } catch (error) {
     console.warn('Could not delete file from storage:', error.message);
     // Continue with DB deletion even if storage deletion fails
@@ -151,9 +150,9 @@ const getSignedUrl = async (documentId) => {
   const doc = result.rows[0];
 
   try {
-    const signedUrl = await getSupabaseSignedUrl(doc.file_url, 3600); // 1 hour expiry
+    const downloadUrl = await getDownloadUrl(doc.file_url, 3600);
     return {
-      url: signedUrl,
+      url: downloadUrl,
       expires_in: 3600,
       document: doc,
     };
