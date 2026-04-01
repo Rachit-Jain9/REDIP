@@ -9,6 +9,7 @@ import {
   ResponsiveContainer, Cell, ReferenceLine,
 } from 'recharts';
 import { useFinancials, useCalculateFinancials } from '../hooks/useFinancials';
+import { useDeal } from '../hooks/useDeals';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import EmptyState from '../components/common/EmptyState';
 import PageHeader from '../components/common/PageHeader';
@@ -35,14 +36,16 @@ const FIELD_DEFS = {
     { name: 'loadingFactor',          label: 'Loading Factor (saleable %)',     type: 'number', step: '0.01', placeholder: '0.65', hint: 'Saleable / Gross Built-Up (typically 0.60–0.72)' },
     { name: 'constructionCostPerSqft',label: 'Construction Cost (₹/sqft)',      type: 'number', placeholder: '4500' },
     { name: 'sellingRatePerSqft',     label: 'Selling Rate (₹/sqft)',           type: 'number', placeholder: '8000' },
-    { name: 'landCostCr',             label: 'Land Cost (₹ Cr)',                type: 'number', step: '0.01', placeholder: '25' },
-    { name: 'approvalCostCr',         label: 'Approval Cost (₹ Cr)',            type: 'number', step: '0.01', placeholder: '2' },
-    { name: 'marketingCostPct',       label: 'Marketing Cost (% of revenue)',   type: 'number', step: '0.1',  placeholder: '5' },
-    { name: 'financeCostPct',         label: 'Finance Cost (% pa)',             type: 'number', step: '0.1',  placeholder: '12' },
-    { name: 'developerMarginPct',     label: 'Developer Margin (%)',            type: 'number', step: '0.1',  placeholder: '20' },
-    { name: 'pricingEscalationPct',   label: 'Pricing Escalation (% pa)',       type: 'number', step: '0.1',  placeholder: '0', hint: 'Expected annual price appreciation during project' },
-    { name: 'projectDurationMonths',  label: 'Project Duration (months)',       type: 'number', placeholder: '36' },
-    { name: 'discountRatePct',        label: 'Discount Rate (%)',               type: 'number', step: '0.1',  placeholder: '14' },
+    { name: 'landCostCr',               label: 'Land Cost (₹ Cr)',                  type: 'number', step: '0.01', placeholder: '25' },
+    { name: 'approvalCostPerSqft',      label: 'Approval Cost (₹/sqft GFA)',        type: 'number', step: '10',   placeholder: '200', hint: 'BMRDA/BBMP plan sanction, OC, utilities — typically ₹100–500/sqft of gross built-up area' },
+    { name: 'marketingCostPct',         label: 'Marketing Cost (% of revenue)',     type: 'number', step: '0.1',  placeholder: '5' },
+    { name: 'financeCostPct',           label: 'Finance Cost (% pa)',               type: 'number', step: '0.1',  placeholder: '12' },
+    { name: 'developerMarginPct',       label: 'Developer Margin (%)',              type: 'number', step: '0.1',  placeholder: '20' },
+    { name: 'pricingEscalationPct',     label: 'Pricing Escalation (% pa)',         type: 'number', step: '0.1',  placeholder: '0', hint: 'Expected annual price appreciation during project' },
+    { name: 'projectDurationMonths',    label: 'Project Duration (months)',         type: 'number', placeholder: '36' },
+    { name: 'constructionStartMonths',  label: 'Construction Start (month)',        type: 'number', placeholder: '3',  hint: 'Month from project start when construction begins (after approvals). E.g. 3 = Q1 end.' },
+    { name: 'constructionEndMonths',    label: 'Construction End (month)',          type: 'number', placeholder: '30', hint: 'Month from project start when structure is complete. Revenue peaks here.' },
+    { name: 'discountRatePct',          label: 'Discount Rate (%)',                 type: 'number', step: '0.1',  placeholder: '14' },
   ],
   plotted_development: [
     { name: 'totalLandSqft',          label: 'Total Land Area (sqft)',          type: 'number', placeholder: '435600', hint: '1 acre = 43,560 sqft' },
@@ -51,7 +54,7 @@ const FIELD_DEFS = {
     { name: 'sellingRatePerSqyd',     label: 'Selling Rate (₹/sqyd)',           type: 'number', placeholder: '12000' },
     { name: 'landCostCr',             label: 'Land Cost (₹ Cr)',                type: 'number', step: '0.01', placeholder: '20' },
     { name: 'devCostPerSqft',         label: 'Development Cost (₹/sqft land)', type: 'number', placeholder: '250', hint: 'Roads, utilities, landscaping on total land area' },
-    { name: 'approvalCostCr',         label: 'Approval Cost (₹ Cr)',            type: 'number', step: '0.01', placeholder: '1.5' },
+    { name: 'approvalCostPerSqft',    label: 'Approval Cost (₹/sqft land)',     type: 'number', step: '5',    placeholder: '80', hint: 'BMRDA layout approval, DTCP sanction — typically ₹50–200/sqft of total land' },
     { name: 'marketingCostPct',       label: 'Marketing Cost (% of revenue)',   type: 'number', step: '0.1',  placeholder: '4' },
     { name: 'financeCostPct',         label: 'Finance Cost (% pa)',             type: 'number', step: '0.1',  placeholder: '12' },
     { name: 'projectDurationMonths',  label: 'Project Duration (months)',       type: 'number', placeholder: '24' },
@@ -119,6 +122,7 @@ const DEFAULT_VALUES = {
     loadingFactor: '0.65', marketingCostPct: '5', financeCostPct: '12',
     developerMarginPct: '20', pricingEscalationPct: '0',
     projectDurationMonths: '36', discountRatePct: '14',
+    constructionStartMonths: '3', constructionEndMonths: '30',
   },
   plotted_development: {
     saleableLandPct: '55', avgPlotSizeSqft: '1200', devCostPerSqft: '250',
@@ -153,26 +157,36 @@ const toNumber = (v) => {
   return isNaN(n) ? null : n;
 };
 
-function buildInitialInputs(financials, targetClass) {
+function buildInitialInputs(financials, targetClass, deal) {
   const assetClass = targetClass || financials?.asset_class || 'residential_apartments';
   const defaults = DEFAULT_VALUES[assetClass] || {};
   const stored = financials?.model_params?.inputs || {};
 
+  // Deal provides plot area / land area for pre-population when no financials yet
+  const dealLandSqft = deal?.land_area_sqft ?? null;
+
   if (assetClass === 'residential_apartments' && !targetClass && financials) {
+    // Resolve approval cost: prefer stored per-sqft, fall back to legacy Cr field
+    const approvalPerSqft = stored.approvalCostPerSqft
+      || (financials.approval_cost_cr && financials.gross_area_sqft
+          ? Math.round((financials.approval_cost_cr * 1e7) / financials.gross_area_sqft)
+          : '') || '';
     return {
-      plotAreaSqft: financials.plot_area_sqft ?? '',
-      fsi: financials.fsi ?? '',
-      loadingFactor: financials.loading_factor ?? defaults.loadingFactor,
+      plotAreaSqft:            financials.plot_area_sqft ?? dealLandSqft ?? '',
+      fsi:                     financials.fsi ?? '',
+      loadingFactor:           financials.loading_factor ?? defaults.loadingFactor,
       constructionCostPerSqft: financials.construction_cost_per_sqft ?? '',
-      sellingRatePerSqft: financials.selling_rate_per_sqft ?? '',
-      landCostCr: financials.land_cost_cr ?? '',
-      approvalCostCr: financials.approval_cost_cr ?? '',
-      marketingCostPct: financials.marketing_cost_pct ?? defaults.marketingCostPct,
-      financeCostPct: financials.finance_cost_pct ?? defaults.financeCostPct,
-      developerMarginPct: financials.developer_margin_pct ?? defaults.developerMarginPct,
-      pricingEscalationPct: stored.pricingEscalationPct ?? defaults.pricingEscalationPct,
-      projectDurationMonths: financials.project_duration_months ?? defaults.projectDurationMonths,
-      discountRatePct: financials.discount_rate_pct ?? defaults.discountRatePct,
+      sellingRatePerSqft:      financials.selling_rate_per_sqft ?? '',
+      landCostCr:              financials.land_cost_cr ?? '',
+      approvalCostPerSqft:     approvalPerSqft,
+      marketingCostPct:        financials.marketing_cost_pct ?? defaults.marketingCostPct,
+      financeCostPct:          financials.finance_cost_pct ?? defaults.financeCostPct,
+      developerMarginPct:      financials.developer_margin_pct ?? defaults.developerMarginPct,
+      pricingEscalationPct:    stored.pricingEscalationPct ?? defaults.pricingEscalationPct,
+      projectDurationMonths:   financials.project_duration_months ?? defaults.projectDurationMonths,
+      constructionStartMonths: stored.constructionStartMonths ?? defaults.constructionStartMonths,
+      constructionEndMonths:   stored.constructionEndMonths ?? defaults.constructionEndMonths,
+      discountRatePct:         financials.discount_rate_pct ?? defaults.discountRatePct,
     };
   }
 
@@ -180,7 +194,11 @@ function buildInitialInputs(financials, targetClass) {
   const fields = FIELD_DEFS[assetClass] || [];
   const out = {};
   for (const f of fields) {
-    out[f.name] = stored[f.name] ?? defaults[f.name] ?? '';
+    let val = stored[f.name] ?? defaults[f.name] ?? '';
+    // Pre-populate land area from deal for plot-type fields
+    if (!val && f.name === 'plotAreaSqft' && dealLandSqft) val = dealLandSqft;
+    if (!val && f.name === 'totalLandSqft' && dealLandSqft) val = dealLandSqft;
+    out[f.name] = val;
   }
   return out;
 }
@@ -241,6 +259,7 @@ function normalizeFinancials(financials) {
       exitValue: toNumber(revenue.exitValue ?? financials.exit_value_cr),
     },
     cashFlows: cashFlowSeries.map((cf, i) => ({ quarter: cf.quarter ?? i, value: toNumber(cf.net) ?? 0 })),
+    yearlyCashFlows: (financials.cash_flows?.yearly || []).map((cf) => ({ year: cf.year, label: cf.label, value: toNumber(cf.net) ?? 0 })),
     sensitivity: {
       sellingRates: sm.sellingRates || [],
       constructionCosts: sm.constructionCosts || [],
@@ -252,14 +271,14 @@ function normalizeFinancials(financials) {
 
 // ─── SUB-COMPONENTS ────────────────────────────────────────────────────────
 
-function InputForm({ initialValues, assetClass, onSubmit, isLoading }) {
-  const [inputs, setInputs] = useState(() => buildInitialInputs(null, assetClass));
+function InputForm({ initialValues, assetClass, deal, onSubmit, isLoading }) {
+  const [inputs, setInputs] = useState(() => buildInitialInputs(null, assetClass, deal));
   const [hintOpen, setHintOpen] = useState(null);
 
   useEffect(() => {
-    if (initialValues) setInputs(buildInitialInputs(initialValues, assetClass));
-    else setInputs(buildInitialInputs(null, assetClass));
-  }, [initialValues, assetClass]);
+    if (initialValues) setInputs(buildInitialInputs(initialValues, assetClass, deal));
+    else setInputs(buildInitialInputs(null, assetClass, deal));
+  }, [initialValues, assetClass, deal]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -456,23 +475,46 @@ function RevenuePanel({ revenue, kpis, assetClass }) {
   );
 }
 
-function CashFlowChart({ cashFlows, assetClass }) {
+function CashFlowChart({ cashFlows, yearlyCashFlows, assetClass }) {
+  const [view, setView] = useState('quarterly');
   if (!cashFlows || cashFlows.length === 0) return null;
   const isIncome = INCOME_CLASSES.has(assetClass);
-  const data = cashFlows.map((cf) => ({ name: `Q${cf.quarter}`, value: cf.value }));
+
+  const quarterlyData = cashFlows.map((cf) => ({ name: `Q${cf.quarter}`, value: cf.value }));
+  const yearlyData    = (yearlyCashFlows || []).map((cf) => ({ name: cf.label, value: cf.value }));
+  const data          = view === 'yearly' ? yearlyData : quarterlyData;
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
-        <BarChart3 size={16} className="text-primary-600" />
-        {isIncome ? 'Development + Operating Cash Flows (Quarterly)' : 'Quarterly Cash Flows'}
-      </h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+          <BarChart3 size={16} className="text-primary-600" />
+          Cash Flows
+        </h3>
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+          <button
+            type="button"
+            onClick={() => setView('quarterly')}
+            className={`px-3 py-1.5 transition-colors ${view === 'quarterly' ? 'bg-primary-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+          >
+            Quarterly
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('yearly')}
+            className={`px-3 py-1.5 transition-colors border-l border-gray-200 ${view === 'yearly' ? 'bg-primary-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+          >
+            Yearly
+          </button>
+        </div>
+      </div>
       <div className="h-72">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={isIncome ? 3 : 1} />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={view === 'quarterly' && !isIncome ? 1 : 0} />
             <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${v.toFixed(0)} Cr`} />
-            <Tooltip formatter={(v) => [formatCrores(v), 'Cash Flow']} contentStyle={{ borderRadius: '8px', fontSize: '13px' }} />
+            <Tooltip formatter={(v) => [formatCrores(v), 'Net Cash Flow']} contentStyle={{ borderRadius: '8px', fontSize: '13px' }} />
             <ReferenceLine y={0} stroke="#94a3b8" />
             <Bar dataKey="value" radius={[3, 3, 0, 0]}>
               {data.map((entry, i) => <Cell key={i} fill={entry.value >= 0 ? '#22c55e' : '#ef4444'} />)}
@@ -480,6 +522,15 @@ function CashFlowChart({ cashFlows, assetClass }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
+      {view === 'yearly' && yearlyData.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-3 text-xs text-gray-500 border-t pt-3">
+          {yearlyData.map((y) => (
+            <span key={y.name} className={`font-medium ${y.value >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+              {y.name}: {formatCrores(y.value)}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -544,6 +595,7 @@ function SensitivityTable({ sensitivity, assetClass }) {
 export default function FinancialsPage() {
   const { dealId } = useParams();
   const { data: financials, isLoading, error } = useFinancials(dealId);
+  const { data: deal } = useDeal(dealId);
   const calculateMutation = useCalculateFinancials();
 
   const existingClass = financials?.asset_class || 'residential_apartments';
@@ -615,7 +667,7 @@ export default function FinancialsPage() {
             <RevenuePanel revenue={normalizedFinancials.revenue} kpis={normalizedFinancials.kpis} assetClass={normalizedFinancials.assetClass} />
           </div>
 
-          <CashFlowChart cashFlows={normalizedFinancials.cashFlows} assetClass={normalizedFinancials.assetClass} />
+          <CashFlowChart cashFlows={normalizedFinancials.cashFlows} yearlyCashFlows={normalizedFinancials.yearlyCashFlows} assetClass={normalizedFinancials.assetClass} />
           <SensitivityTable sensitivity={normalizedFinancials.sensitivity} assetClass={normalizedFinancials.assetClass} />
 
           <div className="border-t pt-6">
@@ -623,6 +675,7 @@ export default function FinancialsPage() {
             <InputForm
               initialValues={financials}
               assetClass={activeClass}
+              deal={deal}
               onSubmit={handleCalculate}
               isLoading={calculateMutation.isPending}
             />
@@ -635,6 +688,7 @@ export default function FinancialsPage() {
         <InputForm
           initialValues={null}
           assetClass={activeClass}
+          deal={deal}
           onSubmit={handleCalculate}
           isLoading={calculateMutation.isPending}
         />

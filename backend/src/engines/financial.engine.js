@@ -77,8 +77,21 @@ function safeCashFlows(cfs) {
 }
 
 function structureCashFlows(cfs) {
+  const quarterly = cfs.map((net, quarter) => ({ quarter, net }));
+
+  // Aggregate into years: Q0 = pre-project, Year 1 = Q1-Q4, Year 2 = Q5-Q8, …
+  const yearly = [];
+  if (cfs[0] !== 0) yearly.push({ year: 0, label: 'Pre-Project', net: round2(cfs[0]) });
+  for (let y = 0; y < Math.ceil((cfs.length - 1) / 4); y++) {
+    const s = y * 4 + 1;
+    const e = Math.min(s + 3, cfs.length - 1);
+    const net = round2(cfs.slice(s, e + 1).reduce((a, b) => a + b, 0));
+    yearly.push({ year: y + 1, label: `Year ${y + 1}`, net });
+  }
+
   return {
-    quarterly: cfs.map((net, quarter) => ({ quarter, net })),
+    quarterly,
+    yearly,
     summary: {
       totalInflow: round2(cfs.filter((c) => c > 0).reduce((a, b) => a + b, 0)),
       totalOutflow: round2(Math.abs(cfs.filter((c) => c < 0).reduce((a, b) => a + b, 0))),
@@ -95,13 +108,18 @@ function calculateResidentialApartments(input) {
   const constructionCostSqft  = Number(input.constructionCostPerSqft);
   const sellingRateSqft       = Number(input.sellingRatePerSqft);
   const landCostCr            = Number(input.landCostCr) || 0;
-  const approvalCostCr        = Number(input.approvalCostCr) || 0;
   const marketingCostPct      = Number(input.marketingCostPct) || 5;
   const financeCostPct        = Number(input.financeCostPct) || 12;
   const developerMarginPct    = Number(input.developerMarginPct) || 20;
   const durationMonths        = Number(input.projectDurationMonths) || 36;
   const discountRatePct       = Number(input.discountRatePct) || 14;
   const pricingEscalationPct  = Number(input.pricingEscalationPct) || 0;
+
+  // Construction phasing
+  const constructionStartMonths = Number(input.constructionStartMonths) || 0;
+  const constructionEndMonths   = Number(input.constructionEndMonths) > 0
+    ? Math.min(Number(input.constructionEndMonths), durationMonths)
+    : durationMonths * 0.85;
 
   if (plotAreaSqft <= 0 || fsi <= 0 || fsi > 20) throw new Error('Invalid plot area or FSI');
   if (loadingFactor <= 0 || loadingFactor > 1) throw new Error('Loading factor must be 0–1');
@@ -113,6 +131,11 @@ function calculateResidentialApartments(input) {
   const saleableAreaSqft    = grossAreaSqft * loadingFactor;
   const carpetAreaSqft      = saleableAreaSqft * CARPET_RATIO;
   const superBuiltupSqft    = saleableAreaSqft * SBU_RATIO;
+
+  // Approval cost: accept ₹/sqft of gross area OR legacy Cr
+  const approvalCostCr = Number(input.approvalCostPerSqft) > 0
+    ? (grossAreaSqft * Number(input.approvalCostPerSqft)) / 1e7
+    : Number(input.approvalCostCr) || 0;
 
   // Revenue — pricing escalation applied to average (half of annual rate for mid-project)
   const avgPriceEscalation = 1 + (pricingEscalationPct / 100) * (durationMonths / 24);
@@ -143,42 +166,56 @@ function calculateResidentialApartments(input) {
                 (1 + developerMarginPct / 100);
 
   // Cash flows
-  const totalQ = Math.ceil(durationMonths / 3);
+  const totalQ    = Math.ceil(durationMonths / 3);
+  const constStartQ = Math.max(0, Math.floor(constructionStartMonths / 3));
+  const constEndQ   = Math.min(totalQ, Math.ceil(constructionEndMonths / 3));
+  const constDurQ   = Math.max(2, constEndQ - constStartQ);
   const cfs = new Array(totalQ + 1).fill(0);
 
-  // Upfront: land + stamp + 25% approval
+  // Upfront (Q0): land + stamp + 25% approval
   cfs[0] -= landCostCr + stampDutyCr + approvalCostCr * 0.25;
-  if (totalQ >= 2) { cfs[1] -= approvalCostCr * 0.375; cfs[2] -= approvalCostCr * 0.375; }
-
-  // Construction S-curve over 85% of project
-  const constQ = Math.max(2, Math.ceil(durationMonths * 0.85 / 3));
-  const cweights = sCurveWeights(constQ);
-  for (let q = 0; q < constQ && q + 1 <= totalQ; q++) {
-    cfs[q + 1] -= (constructionCostCr + gstCostCr) * cweights[q];
+  // Remaining 75% of approvals spread over pre-construction phase
+  const approvalRem = approvalCostCr * 0.75;
+  if (constStartQ >= 2) {
+    for (let q = 1; q <= constStartQ && q <= totalQ; q++) cfs[q] -= approvalRem / constStartQ;
+  } else if (totalQ >= 3) {
+    cfs[1] -= approvalRem * 0.5;
+    cfs[2] -= approvalRem * 0.5;
+  } else if (totalQ >= 2) {
+    cfs[1] -= approvalRem;
   }
 
-  // Marketing: spread from Q3 to Q(n-1)
-  const mktStart = Math.max(3, Math.floor(totalQ * 0.25));
+  // Construction: S-curve from constStartQ+1 to constEndQ
+  const cweights = sCurveWeights(constDurQ);
+  for (let q = 0; q < constDurQ; q++) {
+    const cfIdx = constStartQ + q + 1;
+    if (cfIdx <= totalQ) cfs[cfIdx] -= (constructionCostCr + gstCostCr) * cweights[q];
+  }
+
+  // Marketing: spread from constStartQ+2 to Q(n-1)
+  const mktStart = Math.max(constStartQ + 2, Math.floor(totalQ * 0.25));
   const mktEnd   = totalQ - 1;
   const mktDur   = mktEnd - mktStart + 1;
   if (mktDur > 0) {
     for (let q = mktStart; q <= mktEnd; q++) cfs[q] -= marketingCostCr / mktDur;
   }
 
-  // Revenue: realistic milestone curve peaking at ~65% of project
-  // India: heavy collections from floor slabs (Q4-Q8 for 36-month project), tapering to OC/possession
-  const revStart = Math.max(1, Math.floor(totalQ * 0.10));
+  // Revenue: right-skewed logistic curve — Indian milestone-linked collections
+  // ~8% in first 25% of project (bookings), ~57% in middle 50% (slab milestones),
+  // ~35% in last 25% (OC + possession). Construction must exceed revenue early.
+  const revStart = Math.max(1, constStartQ);
   const revEnd   = totalQ;
   const revDur   = revEnd - revStart + 1;
   if (revDur > 0) {
     const rweights = Array.from({ length: revDur }, (_, q) => {
       const p = (q + 1) / revDur;
-      // Normal-ish curve peaking at 65% of project duration
-      return Math.max(0.03, Math.exp(-5 * (p - 0.65) ** 2) + 0.12);
+      // Logistic: right-skewed, heavy second half
+      return Math.max(0.04, 1 / (1 + Math.exp(-7 * (p - 0.60))));
     });
     const rtotal = rweights.reduce((a, b) => a + b, 0);
-    for (let q = 0; q < revDur && q + revStart <= totalQ; q++) {
-      cfs[q + revStart] += totalRevenueCr * (rweights[q] / rtotal);
+    for (let q = 0; q < revDur; q++) {
+      const cfIdx = revStart + q;
+      if (cfIdx <= totalQ) cfs[cfIdx] += totalRevenueCr * (rweights[q] / rtotal);
     }
   }
 
@@ -199,8 +236,10 @@ function calculateResidentialApartments(input) {
     inputs: {
       plotAreaSqft, fsi, loadingFactor, constructionCostPerSqft: constructionCostSqft,
       sellingRatePerSqft: sellingRateSqft, landCostCr, approvalCostCr,
+      approvalCostPerSqft: Number(input.approvalCostPerSqft) || null,
       marketingCostPct, financeCostPct, developerMarginPct, projectDurationMonths: durationMonths,
       discountRatePct, pricingEscalationPct,
+      constructionStartMonths, constructionEndMonths,
     },
     kpis: {
       irr: round4(irrPct),
@@ -262,7 +301,6 @@ function calculatePlottedDevelopment(input) {
   const sellingRatePerSqyd   = Number(input.sellingRatePerSqyd);   // plots quoted in sqyd
   const landCostCr           = Number(input.landCostCr) || 0;
   const devCostPerSqft       = Number(input.devCostPerSqft) || 250; // roads, infra, utilities
-  const approvalCostCr       = Number(input.approvalCostCr) || 0;
   const marketingCostPct     = Number(input.marketingCostPct) || 4;
   const financeCostPct       = Number(input.financeCostPct) || 12;
   const durationMonths       = Number(input.projectDurationMonths) || 24;
@@ -271,6 +309,11 @@ function calculatePlottedDevelopment(input) {
   if (totalLandSqft <= 0) throw new Error('Total land area must be positive');
   if (sellingRatePerSqyd <= 0) throw new Error('Selling rate must be positive');
   if (avgPlotSizeSqft <= 0) throw new Error('Average plot size must be positive');
+
+  // Approval cost: accept ₹/sqft of total land OR legacy Cr
+  const approvalCostCr = Number(input.approvalCostPerSqft) > 0
+    ? (totalLandSqft * Number(input.approvalCostPerSqft)) / 1e7
+    : Number(input.approvalCostCr) || 0;
 
   const saleableLandSqft  = totalLandSqft * (saleableLandPct / 100);
   const totalPlots        = Math.floor(saleableLandSqft / avgPlotSizeSqft);
@@ -315,10 +358,12 @@ function calculatePlottedDevelopment(input) {
   const mktDur = Math.max(1, totalQ - 2);
   for (let q = 2; q <= totalQ; q++) cfs[q] -= marketingCostCr / mktDur;
 
-  // Revenue: plotted sales typically launch-heavy (50% in first 40% of project)
+  // Revenue: plotted sales — front-loaded launch (40%) then steady absorption
+  // Launch event collects large bookings; remaining collected at plot demarcation + registration
   const rweights = Array.from({ length: totalQ }, (_, q) => {
     const p = (q + 1) / totalQ;
-    return Math.max(0.05, Math.exp(-6 * (p - 0.35) ** 2) + 0.15);
+    // Slight front-tilt but not extreme: Gaussian peak at 35% with long tail
+    return Math.max(0.06, Math.exp(-4 * (p - 0.35) ** 2) + 0.10);
   });
   const rtotal = rweights.reduce((a, b) => a + b, 0);
   for (let q = 0; q < totalQ; q++) cfs[q + 1] += totalRevenueCr * (rweights[q] / rtotal);
@@ -332,8 +377,9 @@ function calculatePlottedDevelopment(input) {
     assetClass: 'plotted_development',
     inputs: {
       totalLandSqft, saleableLandPct, avgPlotSizeSqft, sellingRatePerSqyd,
-      landCostCr, devCostPerSqft, approvalCostCr, marketingCostPct,
-      financeCostPct, projectDurationMonths: durationMonths, discountRatePct,
+      landCostCr, devCostPerSqft, approvalCostCr,
+      approvalCostPerSqft: Number(input.approvalCostPerSqft) || null,
+      marketingCostPct, financeCostPct, projectDurationMonths: durationMonths, discountRatePct,
     },
     kpis: {
       irr: round4(irrPct), npv: round4(npvCr),
