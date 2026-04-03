@@ -4,6 +4,7 @@ import useAuthStore from './store/authStore';
 import Layout from './components/layout/Layout';
 import ToastContainer from './components/common/Toast';
 import LoadingSpinner from './components/common/LoadingSpinner';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -37,7 +38,11 @@ function PageLoader() {
 }
 
 function withSuspense(element) {
-  return <Suspense fallback={<PageLoader />}>{element}</Suspense>;
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<PageLoader />}>{element}</Suspense>
+    </ErrorBoundary>
+  );
 }
 
 export default function App() {
@@ -50,7 +55,9 @@ export default function App() {
           path="/"
           element={
             <ProtectedRoute>
-              <Layout />
+              <ErrorBoundary>
+                <Layout />
+              </ErrorBoundary>
             </ProtectedRoute>
           }
         >

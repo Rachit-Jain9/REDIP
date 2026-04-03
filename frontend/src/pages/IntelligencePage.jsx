@@ -11,12 +11,21 @@ import {
   Lightbulb,
   ChevronDown,
   RefreshCw,
+  Pencil,
+  Save,
+  X,
+  PlusCircle,
+  Trash2,
+  Lock,
 } from 'lucide-react';
-import { useDailyBrief } from '../hooks/useIntelligence';
+import { useDailyBrief, useMarketNotes, useSaveMarketNotes } from '../hooks/useIntelligence';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import PageHeader from '../components/common/PageHeader';
 import Badge from '../components/common/Badge';
 import { formatPct, formatCrores, formatDate, STAGE_CONFIG } from '../utils/format';
+import useAuthStore from '../store/authStore';
+
+// ─── Small helpers ─────────────────────────────────────────────────────────────
 
 function SectionCard({ icon: Icon, title, children, className = '' }) {
   return (
@@ -65,9 +74,150 @@ function UnconfiguredNotice({ requirements }) {
   );
 }
 
+// ─── Admin Market Notes Editor ─────────────────────────────────────────────────
+
+const SECTION_META = {
+  micro_market: { label: 'Micro-Market Intelligence', placeholder: 'e.g. Whitefield absorption strong; 15,000–16,000/sqft bracket holding up.' },
+  slowdown:     { label: 'Demand Slowdown Indicators', placeholder: 'e.g. Affordable segment (sub-8,000/sqft) showing 18% longer days-on-market vs Q3.' },
+  strategic:    { label: 'Strategic Takeaways', placeholder: 'e.g. Prioritise Sarjapur and Whitefield for residential underwriting; avoid oversupplied ORR mid-market.' },
+};
+
+function NotesEditor({ section, initialItems, onSave, saving }) {
+  const [items, setItems] = useState(initialItems || []);
+  const [newItem, setNewItem] = useState('');
+
+  const add = () => {
+    const trimmed = newItem.trim();
+    if (!trimmed) return;
+    setItems((prev) => [...prev, trimmed]);
+    setNewItem('');
+  };
+
+  const remove = (idx) => setItems((prev) => prev.filter((_, i) => i !== idx));
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); add(); }
+  };
+
+  return (
+    <div className="space-y-3">
+      <ul className="space-y-2">
+        {items.map((item, idx) => (
+          <li key={idx} className="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-800">
+            <span className="flex-1">{item}</span>
+            <button
+              type="button"
+              onClick={() => remove(idx)}
+              className="text-gray-400 hover:text-red-500 flex-shrink-0 mt-0.5"
+            >
+              <Trash2 size={13} />
+            </button>
+          </li>
+        ))}
+        {items.length === 0 && (
+          <li className="text-xs text-gray-400 italic">No items yet. Add your first observation below.</li>
+        )}
+      </ul>
+
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={newItem}
+          onChange={(e) => setNewItem(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={SECTION_META[section]?.placeholder}
+          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+        />
+        <button
+          type="button"
+          onClick={add}
+          disabled={!newItem.trim()}
+          className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+        >
+          <PlusCircle size={14} />
+          Add
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onSave(items)}
+        disabled={saving}
+        className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+      >
+        {saving ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}
+        Save section
+      </button>
+    </div>
+  );
+}
+
+function AdminNotesPanel() {
+  const { data: marketNotes, isLoading } = useMarketNotes();
+  const saveNotes = useSaveMarketNotes();
+  const [openSection, setOpenSection] = useState(null);
+  const [savingSection, setSavingSection] = useState(null);
+
+  const handleSave = async (section, items) => {
+    setSavingSection(section);
+    try {
+      await saveNotes.mutateAsync({ section, items });
+    } finally {
+      setSavingSection(null);
+    }
+  };
+
+  if (isLoading) return <p className="text-sm text-gray-500">Loading notes...</p>;
+
+  return (
+    <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Lock size={15} className="text-blue-600" />
+        <p className="text-sm font-semibold text-blue-800">Admin — Market Notes Editor</p>
+        <span className="ml-auto text-xs text-blue-500">Only admins can edit</span>
+      </div>
+      <p className="text-xs text-blue-700 mb-4">
+        Notes entered here appear directly in the intelligence brief and are stored in the database. They are the only manually-editable external signal REDIP will surface — no hallucinated data.
+      </p>
+
+      <div className="space-y-3">
+        {Object.entries(SECTION_META).map(([sectionKey, meta]) => (
+          <div key={sectionKey} className="rounded-lg bg-white border border-blue-100">
+            <button
+              type="button"
+              onClick={() => setOpenSection(openSection === sectionKey ? null : sectionKey)}
+              className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-gray-800 hover:bg-gray-50 rounded-lg"
+            >
+              {meta.label}
+              <ChevronDown
+                size={14}
+                className={`text-gray-400 transition-transform ${openSection === sectionKey ? 'rotate-180' : ''}`}
+              />
+            </button>
+            {openSection === sectionKey && (
+              <div className="px-4 pb-4">
+                <NotesEditor
+                  section={sectionKey}
+                  initialItems={marketNotes?.[sectionKey] || []}
+                  onSave={(items) => handleSave(sectionKey, items)}
+                  saving={savingSection === sectionKey}
+                />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ─────────────────────────────────────────────────────────────────
+
 export default function IntelligencePage() {
   const today = new Date().toISOString().slice(0, 10);
   const { data: brief, isLoading, isError, refetch, isFetching } = useDailyBrief();
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
 
   if (isLoading) {
     return (
@@ -111,6 +261,18 @@ export default function IntelligencePage() {
         <UnconfiguredNotice requirements={brief?.verifiedSourceRequirements} />
       )}
 
+      {/* Claude AI brief (when generated) */}
+      {brief?.claudeBrief && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-6 py-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Brain size={16} className="text-indigo-600" />
+            <p className="text-sm font-semibold text-indigo-800">AI Brief — Claude</p>
+            <span className="ml-auto text-xs text-indigo-400">Generated from internal pipeline data only</span>
+          </div>
+          <p className="text-sm text-indigo-900 whitespace-pre-line leading-relaxed">{brief.claudeBrief}</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* 1. Deal of the Day */}
         <SectionCard icon={TrendingUp} title="1. Deal of the Day">
@@ -124,12 +286,19 @@ export default function IntelligencePage() {
                   </Badge>
                 )}
               </div>
-              {brief.dealOfDay.city && (
-                <div className="flex items-center gap-1 text-sm text-gray-500">
-                  <MapPin size={13} />
-                  <span>{brief.dealOfDay.city}</span>
-                </div>
-              )}
+              <div className="flex flex-wrap items-center gap-3">
+                {brief.dealOfDay.city && (
+                  <div className="flex items-center gap-1 text-sm text-gray-500">
+                    <MapPin size={13} />
+                    <span>{brief.dealOfDay.city}</span>
+                  </div>
+                )}
+                {brief.dealOfDay.assetClass && (
+                  <span className="text-xs rounded-full bg-slate-100 px-2 py-0.5 text-slate-600 capitalize">
+                    {brief.dealOfDay.assetClass.replace(/_/g, ' ')}
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 {brief.dealOfDay.irrPct != null && (
                   <div className="rounded-lg bg-slate-50 px-3 py-2">
@@ -163,16 +332,10 @@ export default function IntelligencePage() {
                 <li key={i} className="border-b border-gray-50 last:border-0 pb-2 last:pb-0">
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-sm font-medium text-gray-800">{dev.headline}</span>
-                    {dev.city && (
-                      <span className="text-xs text-gray-400 flex-shrink-0">{dev.city}</span>
-                    )}
+                    {dev.city && <span className="text-xs text-gray-400 flex-shrink-0">{dev.city}</span>}
                   </div>
-                  {dev.whyItMatters && (
-                    <p className="text-xs text-gray-500 mt-1">{dev.whyItMatters}</p>
-                  )}
-                  {dev.date && (
-                    <p className="text-xs text-gray-400 mt-0.5">{formatDate(dev.date)}</p>
-                  )}
+                  {dev.whyItMatters && <p className="text-xs text-gray-500 mt-1">{dev.whyItMatters}</p>}
+                  {dev.date && <p className="text-xs text-gray-400 mt-0.5">{formatDate(dev.date)}</p>}
                 </li>
               ))}
             </ul>
@@ -236,15 +399,15 @@ export default function IntelligencePage() {
             </ul>
           ) : (
             <p className="text-sm text-gray-500">
-              Micro-market intelligence will appear here once verified external data sources are configured.
+              Micro-market intelligence will appear here once admin notes are entered or verified external data sources are configured.
             </p>
           )}
         </SectionCard>
       </div>
 
-      {/* 5. Demand Heatmap — full width */}
+      {/* 5. Demand Heatmap */}
       {brief?.bengaluruDemandHeatmap?.length > 0 && (
-        <SectionCard icon={BarChart2} title="5. Demand Heatmap — Bengaluru Micro-Markets" className="col-span-2">
+        <SectionCard icon={BarChart2} title="5. Demand Heatmap — Bengaluru Micro-Markets">
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
@@ -321,8 +484,17 @@ export default function IntelligencePage() {
         </div>
       )}
 
+      {/* Admin: Market Notes Editor */}
+      {isAdmin && (
+        <div className="pt-2">
+          <AdminNotesPanel />
+        </div>
+      )}
+
       <p className="text-xs text-gray-400 text-center pb-4">
-        Brief generated {today} · Source: {notConfigured ? 'internal pipeline only' : 'verified external feeds + internal pipeline'}
+        Brief generated {today} · Source:{' '}
+        {notConfigured ? 'internal pipeline only' : 'verified external feeds + internal pipeline'}
+        {brief?.claudeBrief ? ' · AI-enhanced' : ''}
       </p>
     </div>
   );
