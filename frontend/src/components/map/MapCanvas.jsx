@@ -505,7 +505,7 @@ export default function MapCanvas({
         </span>
       </div>
 
-      <div className="absolute bottom-4 right-4 z-[1000] max-w-sm rounded-2xl bg-white/95 p-4 shadow-lg ring-1 ring-black/5">
+      <div className="absolute bottom-16 right-4 z-[1000] max-w-sm rounded-2xl bg-white/95 p-4 shadow-lg ring-1 ring-black/5">
         <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Heat Layer Legend</p>
         <div className="mt-3 flex flex-wrap gap-2">
           {Object.entries(STAGE_HEAT_META)
