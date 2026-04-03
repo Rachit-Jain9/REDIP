@@ -76,6 +76,7 @@ export const propertiesAPI = {
   update: (id, data) => api.put(`/properties/${id}`, data),
   delete: (id) => api.delete(`/properties/${id}`),
   geocode: (id) => api.post(`/properties/${id}/geocode`),
+  bulkGeocode: () => api.post('/properties/bulk-geocode'),
 };
 
 // Financials

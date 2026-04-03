@@ -152,4 +152,14 @@ router.post('/:id/geocode', authenticate, requireAdminOrAnalyst, async (req, res
   }
 });
 
+// POST /properties/bulk-geocode  — re-geocodes all non-manual properties (admin only)
+router.post('/bulk-geocode', authenticate, requireAdminOrAnalyst, async (req, res, next) => {
+  try {
+    const results = await propertyService.bulkGeocodeProperties();
+    res.json({ success: true, message: `Geocoded ${results.success}/${results.total} properties.`, data: results });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

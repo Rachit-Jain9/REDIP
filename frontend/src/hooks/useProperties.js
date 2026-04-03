@@ -56,3 +56,28 @@ export function useDeleteProperty() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete property'),
   });
 }
+
+export function useGeocodeProperty() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => propertiesAPI.geocode(id).then((r) => r.data),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ['properties'] });
+      qc.invalidateQueries({ queryKey: ['property', id] });
+      toast.success('Property geocoded — map pin updated');
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Geocoding failed'),
+  });
+}
+
+export function useBulkGeocodeProperties() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => propertiesAPI.bulkGeocode().then((r) => r.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['properties'] });
+      toast.success(data.message || 'All properties re-geocoded');
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Bulk geocode failed'),
+  });
+}

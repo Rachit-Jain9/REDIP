@@ -271,9 +271,24 @@ const getPropertyById = async (id) => {
 
 const updateProperty = async (id, data) => {
   const existingProperty = await getPropertyById(id);
+
+  // If any address field changed and the caller did not supply new explicit coords,
+  // clear the stored lat/lng so hydrateGeocodeMetadata triggers a fresh geocode.
+  const addressChanged =
+    (data.address !== undefined && data.address !== existingProperty.address) ||
+    (data.city !== undefined && data.city !== existingProperty.city) ||
+    (data.state !== undefined && data.state !== existingProperty.state) ||
+    (data.pincode !== undefined && data.pincode !== existingProperty.pincode);
+
+  const coordOverride =
+    addressChanged && data.lat === undefined && data.lng === undefined
+      ? { lat: undefined, lng: undefined }
+      : {};
+
   const payload = await buildPropertyPayload({
     ...existingProperty,
     ...data,
+    ...coordOverride,
     propertyType: data.propertyType ?? data.property_type ?? existingProperty.property_type,
     landAreaSqft: data.landAreaSqft ?? existingProperty.land_area_sqft,
     landAreaInputValue: data.landAreaInputValue ?? existingProperty.land_area_input_value,
@@ -414,6 +429,32 @@ const geocodePropertyAddress = async (propertyId) => {
   return result.rows[0];
 };
 
+const bulkGeocodeProperties = async ({ onlyStatus } = {}) => {
+  const whereClause = onlyStatus
+    ? `WHERE geocode_status = ANY($1) AND (address IS NOT NULL OR city IS NOT NULL)`
+    : `WHERE geocode_status != 'manual' AND (address IS NOT NULL OR city IS NOT NULL)`;
+
+  const params = onlyStatus ? [onlyStatus] : [];
+  const rows = await query(
+    `SELECT id FROM properties ${whereClause} ORDER BY updated_at ASC`,
+    params
+  );
+
+  const results = { success: 0, failed: 0, total: rows.rows.length, errors: [] };
+
+  for (const row of rows.rows) {
+    try {
+      await geocodePropertyAddress(row.id);
+      results.success++;
+    } catch (err) {
+      results.failed++;
+      results.errors.push({ id: row.id, message: err.message });
+    }
+  }
+
+  return results;
+};
+
 module.exports = {
   createProperty,
   getProperties,
@@ -421,4 +462,5 @@ module.exports = {
   updateProperty,
   deleteProperty,
   geocodePropertyAddress,
+  bulkGeocodeProperties,
 };

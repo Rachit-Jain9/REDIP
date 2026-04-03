@@ -5,11 +5,13 @@ import {
   Layers3,
   LocateFixed,
   MapPin,
+  RefreshCw,
   RotateCcw,
   Search,
 } from 'lucide-react';
-import { useProperties } from '../hooks/useProperties';
+import { useProperties, useBulkGeocodeProperties } from '../hooks/useProperties';
 import { useDeals } from '../hooks/useDeals';
+import useAuthStore from '../store/authStore';
 import { compsAPI } from '../services/api';
 import Badge from '../components/common/Badge';
 import PageHeader from '../components/common/PageHeader';
@@ -47,6 +49,9 @@ function ToggleRow({ checked, label, description, onChange }) {
 export default function MapPage() {
   const { data: propertiesData, isLoading: propertiesLoading } = useProperties({ limit: 200 });
   const { data: dealsData, isLoading: dealsLoading } = useDeals({ limit: 200 });
+  const { user } = useAuthStore();
+  const bulkGeocode = useBulkGeocodeProperties();
+  const canGeocode = user?.role === 'admin' || user?.role === 'analyst';
 
   const [search, setSearch] = useState('');
   const [cityFilter, setCityFilter] = useState('all');
@@ -325,6 +330,18 @@ export default function MapPage() {
                 <RotateCcw size={16} className="mr-2" />
                 Reset
               </button>
+              {canGeocode && (
+                <button
+                  type="button"
+                  disabled={bulkGeocode.isPending}
+                  onClick={() => bulkGeocode.mutate()}
+                  className="btn-secondary text-sm disabled:opacity-50"
+                  title="Re-geocode all properties using saved address. Fixes wrong map pins."
+                >
+                  <RefreshCw size={16} className={`mr-2 ${bulkGeocode.isPending ? 'animate-spin' : ''}`} />
+                  {bulkGeocode.isPending ? 'Re-geocoding…' : 'Fix All Pins'}
+                </button>
+              )}
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
