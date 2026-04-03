@@ -171,7 +171,7 @@ function PropertyClusterLayer({ properties, selectedProperty, showClusters, onSe
         lat: bucket.latSum / bucket.properties.length,
         lng: bucket.lngSum / bucket.properties.length,
         dominantZoning,
-        properties: bucket.properties.sort((a, b) => a.name.localeCompare(b.name)),
+        properties: bucket.properties.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
         bounds: L.latLngBounds(bucket.properties.map((property) => [property.lat, property.lng])),
       };
     });
