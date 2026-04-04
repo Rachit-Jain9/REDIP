@@ -169,7 +169,7 @@ Rules:
 const buildBrief = async (briefDate) => {
   const [topDealResult, developmentsResult, marketSignalResult, benchmarksResult, recentTxResult, topCompsResult, notes] = await Promise.all([
     query(
-      `SELECT d.id, d.name, d.stage, d.priority, p.city, p.locality, p.property_type,
+      `SELECT d.id, d.name, d.stage, d.priority, p.city, p.property_type,
         f.irr_pct, f.total_revenue_cr, f.npv_cr, f.asset_class
        FROM deals d
        LEFT JOIN properties p ON d.property_id = p.id
@@ -238,7 +238,6 @@ const buildBrief = async (briefDate) => {
       allTopDeals.map((d) => ({
         name: d.name,
         city: d.city,
-        locality: d.locality,
         stage: d.stage,
         priority: d.priority,
         assetClass: d.asset_class,
