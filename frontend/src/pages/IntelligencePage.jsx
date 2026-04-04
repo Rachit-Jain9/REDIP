@@ -11,21 +11,28 @@ import {
   Lightbulb,
   ChevronDown,
   RefreshCw,
-  Pencil,
   Save,
-  X,
   PlusCircle,
   Trash2,
   Lock,
+  ArrowUpRight,
+  Building2,
+  DollarSign,
 } from 'lucide-react';
-import { useDailyBrief, useMarketNotes, useSaveMarketNotes } from '../hooks/useIntelligence';
+import {
+  useDailyBrief,
+  useMarketNotes,
+  useSaveMarketNotes,
+  useMarketTransactions,
+  useMicroMarketBenchmarks,
+} from '../hooks/useIntelligence';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import PageHeader from '../components/common/PageHeader';
 import Badge from '../components/common/Badge';
 import { formatPct, formatCrores, formatDate, STAGE_CONFIG } from '../utils/format';
 import useAuthStore from '../store/authStore';
 
-// ─── Small helpers ─────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function SectionCard({ icon: Icon, title, children, className = '' }) {
   return (
@@ -46,9 +53,9 @@ function UnconfiguredNotice({ requirements }) {
       <div className="flex items-start gap-3">
         <AlertTriangle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-amber-800">Verified market data not yet configured</p>
+          <p className="text-sm font-medium text-amber-800">Internal pipeline data — external inventory feeds not yet configured</p>
           <p className="text-xs text-amber-700 mt-1">
-            REDIP will not generate external market claims until verified data sources are connected. The brief below reflects real internal pipeline data only.
+            REDIP will not generate external absorption/inventory claims until verified live feeds are connected. Verified transaction data from public sources is displayed separately below.
           </p>
           {requirements?.length > 0 && (
             <button
@@ -74,6 +81,29 @@ function UnconfiguredNotice({ requirements }) {
   );
 }
 
+// ─── Formatting helpers ────────────────────────────────────────────────────────
+
+const formatQuantum = (mn) => {
+  if (!mn) return '—';
+  const cr = mn / 100;
+  return cr >= 1000
+    ? `₹${(cr / 1000).toFixed(2)} TCr`
+    : `₹${cr.toFixed(0)} Cr`;
+};
+
+const formatLandSize = (acres, note) => {
+  if (!acres && !note) return '—';
+  if (note && !acres) return note;
+  if (acres && note) return `${acres} ac · ${note}`;
+  return `${acres} ac`;
+};
+
+const DEAL_TYPE_BADGE = {
+  'Land deal':        'bg-blue-100 text-blue-700',
+  'Equity investment':'bg-emerald-100 text-emerald-700',
+  'Debt':             'bg-amber-100 text-amber-700',
+};
+
 // ─── Admin Market Notes Editor ─────────────────────────────────────────────────
 
 const SECTION_META = {
@@ -95,21 +125,13 @@ function NotesEditor({ section, initialItems, onSave, saving }) {
 
   const remove = (idx) => setItems((prev) => prev.filter((_, i) => i !== idx));
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); add(); }
-  };
-
   return (
     <div className="space-y-3">
       <ul className="space-y-2">
         {items.map((item, idx) => (
           <li key={idx} className="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-800">
             <span className="flex-1">{item}</span>
-            <button
-              type="button"
-              onClick={() => remove(idx)}
-              className="text-gray-400 hover:text-red-500 flex-shrink-0 mt-0.5"
-            >
+            <button type="button" onClick={() => remove(idx)} className="text-gray-400 hover:text-red-500 flex-shrink-0 mt-0.5">
               <Trash2 size={13} />
             </button>
           </li>
@@ -118,13 +140,12 @@ function NotesEditor({ section, initialItems, onSave, saving }) {
           <li className="text-xs text-gray-400 italic">No items yet. Add your first observation below.</li>
         )}
       </ul>
-
       <div className="flex gap-2">
         <input
           type="text"
           value={newItem}
           onChange={(e) => setNewItem(e.target.value)}
-          onKeyDown={handleKeyDown}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
           placeholder={SECTION_META[section]?.placeholder}
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
         />
@@ -138,7 +159,6 @@ function NotesEditor({ section, initialItems, onSave, saving }) {
           Add
         </button>
       </div>
-
       <button
         type="button"
         onClick={() => onSave(items)}
@@ -160,11 +180,8 @@ function AdminNotesPanel() {
 
   const handleSave = async (section, items) => {
     setSavingSection(section);
-    try {
-      await saveNotes.mutateAsync({ section, items });
-    } finally {
-      setSavingSection(null);
-    }
+    try { await saveNotes.mutateAsync({ section, items }); }
+    finally { setSavingSection(null); }
   };
 
   if (isLoading) return <p className="text-sm text-gray-500">Loading notes...</p>;
@@ -177,9 +194,8 @@ function AdminNotesPanel() {
         <span className="ml-auto text-xs text-blue-500">Only admins can edit</span>
       </div>
       <p className="text-xs text-blue-700 mb-4">
-        Notes entered here appear directly in the intelligence brief and are stored in the database. They are the only manually-editable external signal REDIP will surface — no hallucinated data.
+        Notes entered here appear in the intelligence brief and are stored in the database. No external data is fabricated — only what you enter here is surfaced.
       </p>
-
       <div className="space-y-3">
         {Object.entries(SECTION_META).map(([sectionKey, meta]) => (
           <div key={sectionKey} className="rounded-lg bg-white border border-blue-100">
@@ -189,10 +205,7 @@ function AdminNotesPanel() {
               className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-gray-800 hover:bg-gray-50 rounded-lg"
             >
               {meta.label}
-              <ChevronDown
-                size={14}
-                className={`text-gray-400 transition-transform ${openSection === sectionKey ? 'rotate-180' : ''}`}
-              />
+              <ChevronDown size={14} className={`text-gray-400 transition-transform ${openSection === sectionKey ? 'rotate-180' : ''}`} />
             </button>
             {openSection === sectionKey && (
               <div className="px-4 pb-4">
@@ -211,11 +224,145 @@ function AdminNotesPanel() {
   );
 }
 
-// ─── Main page ─────────────────────────────────────────────────────────────────
+// ─── Market Transaction Table ──────────────────────────────────────────────────
+
+function TransactionTable({ rows }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? rows : rows.slice(0, 10);
+
+  return (
+    <div>
+      <div className="overflow-x-auto -mx-5">
+        <table className="w-full text-xs border-collapse min-w-[800px]">
+          <thead>
+            <tr className="border-b-2 border-gray-200 bg-gray-50">
+              <th className="text-left py-2 px-3 font-semibold text-gray-600 whitespace-nowrap">FY / Q</th>
+              <th className="text-left py-2 px-3 font-semibold text-gray-600 whitespace-nowrap">Type</th>
+              <th className="text-left py-2 px-3 font-semibold text-gray-600">Buyer / Borrower</th>
+              <th className="text-left py-2 px-3 font-semibold text-gray-600">Seller / Lender</th>
+              <th className="text-right py-2 px-3 font-semibold text-gray-600 whitespace-nowrap">Quantum</th>
+              <th className="text-right py-2 px-3 font-semibold text-gray-600 whitespace-nowrap">Land / Size</th>
+              <th className="text-left py-2 px-3 font-semibold text-gray-600">Locality</th>
+              <th className="text-left py-2 px-3 font-semibold text-gray-600 max-w-[200px]">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((row, i) => (
+              <tr key={row.id || i} className="border-b border-gray-50 hover:bg-slate-50 transition-colors">
+                <td className="py-2 px-3 font-mono text-gray-700 whitespace-nowrap">
+                  {row.fiscal_year} {row.quarter}
+                </td>
+                <td className="py-2 px-3 whitespace-nowrap">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${DEAL_TYPE_BADGE[row.deal_type] || 'bg-gray-100 text-gray-600'}`}>
+                    {row.deal_type}
+                  </span>
+                </td>
+                <td className="py-2 px-3 text-gray-800 max-w-[180px]">
+                  <span className="line-clamp-2">{row.buyer || '—'}</span>
+                </td>
+                <td className="py-2 px-3 text-gray-600 max-w-[160px]">
+                  <span className="line-clamp-2">{row.investor_lender || row.seller || '—'}</span>
+                </td>
+                <td className="py-2 px-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  {formatQuantum(row.quantum_inr_mn)}
+                </td>
+                <td className="py-2 px-3 text-right text-gray-600 whitespace-nowrap">
+                  {formatLandSize(row.land_size_acres, row.project_size_note)}
+                </td>
+                <td className="py-2 px-3 text-gray-600 whitespace-nowrap">{row.locality || '—'}</td>
+                <td className="py-2 px-3 text-gray-500 max-w-[200px]">
+                  <span className="line-clamp-2">{row.notes || '—'}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {rows.length > 10 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-3 text-xs font-medium text-primary-600 hover:text-primary-700 flex items-center gap-1"
+        >
+          <ChevronDown size={13} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          {expanded ? 'Show less' : `Show all ${rows.length} transactions`}
+        </button>
+      )}
+
+      <p className="mt-3 text-xs text-gray-400">
+        Source: Economic Times, Business Standard, Hindustan Times, Moneycontrol, company press releases.
+        All transactions verified from public disclosures. Quantum in ₹ Cr.
+      </p>
+    </div>
+  );
+}
+
+// ─── Micro-Market Benchmarks Table ────────────────────────────────────────────
+
+function BenchmarksTable({ rows }) {
+  const maxPrice = Math.max(...rows.map((r) => r.avg_price_max_per_sqft || 0));
+
+  return (
+    <div>
+      <div className="overflow-x-auto -mx-5">
+        <table className="w-full text-xs border-collapse min-w-[600px]">
+          <thead>
+            <tr className="border-b-2 border-gray-200 bg-gray-50">
+              <th className="text-left py-2 px-3 font-semibold text-gray-600">Micro-Market</th>
+              <th className="text-left py-2 px-3 font-semibold text-gray-600 whitespace-nowrap">Price Range (₹/sqft)</th>
+              <th className="text-left py-2 px-3 font-semibold text-gray-600 whitespace-nowrap">YoY Growth</th>
+              <th className="text-left py-2 px-3 font-semibold text-gray-600">Anchor Hub</th>
+              <th className="text-left py-2 px-3 font-semibold text-gray-600 w-36">Price Band</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              const barPct = maxPrice > 0 ? Math.round((row.avg_price_max_per_sqft / maxPrice) * 100) : 0;
+              const growthLabel = row.yoy_growth_min_pct != null
+                ? `${row.yoy_growth_min_pct}–${row.yoy_growth_max_pct}%`
+                : '—';
+              const priceLabel = `₹${(row.avg_price_min_per_sqft / 1000).toFixed(1)}k – ₹${(row.avg_price_max_per_sqft / 1000).toFixed(1)}k`;
+              const growthColor = row.yoy_growth_max_pct >= 10
+                ? 'text-emerald-600 font-semibold'
+                : row.yoy_growth_max_pct >= 7
+                  ? 'text-blue-600 font-medium'
+                  : 'text-gray-700';
+
+              return (
+                <tr key={row.id || i} className="border-b border-gray-50 hover:bg-slate-50 transition-colors">
+                  <td className="py-2.5 px-3 font-medium text-gray-900">{row.micro_market}</td>
+                  <td className="py-2.5 px-3 font-mono text-gray-800 whitespace-nowrap">{priceLabel}</td>
+                  <td className={`py-2.5 px-3 whitespace-nowrap ${growthColor}`}>{growthLabel}</td>
+                  <td className="py-2.5 px-3 text-gray-500">{row.anchor_hub || '—'}</td>
+                  <td className="py-2.5 px-3">
+                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                      <div
+                        className="bg-primary-500 h-1.5 rounded-full"
+                        style={{ width: `${barPct}%` }}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-xs text-gray-400">
+        Period: {rows[0]?.data_period || '2025–2026'} · Source: verified residential benchmark data, Bengaluru.
+      </p>
+    </div>
+  );
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function IntelligencePage() {
   const today = new Date().toISOString().slice(0, 10);
   const { data: brief, isLoading, isError, refetch, isFetching } = useDailyBrief();
+  const { data: transactions, isLoading: txLoading } = useMarketTransactions({ city: 'Bengaluru' });
+  const { data: benchmarks, isLoading: bmLoading } = useMicroMarketBenchmarks({ city: 'Bengaluru' });
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin';
 
@@ -231,9 +378,7 @@ export default function IntelligencePage() {
     return (
       <div className="text-center py-20">
         <p className="text-red-600 font-medium">Failed to load intelligence brief</p>
-        <button onClick={() => refetch()} className="mt-3 btn btn-secondary text-sm">
-          Retry
-        </button>
+        <button onClick={() => refetch()} className="mt-3 btn btn-secondary text-sm">Retry</button>
       </div>
     );
   }
@@ -241,9 +386,9 @@ export default function IntelligencePage() {
   const notConfigured = brief?.mode === 'verified_data_required';
 
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="space-y-5 max-w-6xl">
       <PageHeader
-        title="Daily Intelligence Brief"
+        title="Market Intelligence"
         description={`Bengaluru real estate intelligence — ${today}`}
         actions={
           <button
@@ -257,11 +402,9 @@ export default function IntelligencePage() {
         }
       />
 
-      {notConfigured && (
-        <UnconfiguredNotice requirements={brief?.verifiedSourceRequirements} />
-      )}
+      {notConfigured && <UnconfiguredNotice requirements={brief?.verifiedSourceRequirements} />}
 
-      {/* Claude AI brief (when generated) */}
+      {/* Claude AI Brief */}
       {brief?.claudeBrief && (
         <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-6 py-5">
           <div className="flex items-center gap-2 mb-3">
@@ -273,8 +416,8 @@ export default function IntelligencePage() {
         </div>
       )}
 
+      {/* Row 1: Deal of Day + Key Developments */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* 1. Deal of the Day */}
         <SectionCard icon={TrendingUp} title="1. Deal of the Day">
           {brief?.dealOfDay ? (
             <div className="space-y-3">
@@ -289,8 +432,7 @@ export default function IntelligencePage() {
               <div className="flex flex-wrap items-center gap-3">
                 {brief.dealOfDay.city && (
                   <div className="flex items-center gap-1 text-sm text-gray-500">
-                    <MapPin size={13} />
-                    <span>{brief.dealOfDay.city}</span>
+                    <MapPin size={13} /><span>{brief.dealOfDay.city}</span>
                   </div>
                 )}
                 {brief.dealOfDay.assetClass && (
@@ -324,7 +466,6 @@ export default function IntelligencePage() {
           )}
         </SectionCard>
 
-        {/* 2. Key Developments */}
         <SectionCard icon={Calendar} title="2. Key Developments">
           {brief?.keyDevelopments?.length > 0 ? (
             <ul className="space-y-3">
@@ -343,8 +484,10 @@ export default function IntelligencePage() {
             <p className="text-sm text-gray-500">No pipeline activity recorded yet.</p>
           )}
         </SectionCard>
+      </div>
 
-        {/* 3. Market Signals */}
+      {/* Row 2: Market Signals + Micro-Market Intelligence */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <SectionCard icon={BarChart2} title="3. Market Signals">
           {brief?.marketSignals ? (
             <div className="space-y-3">
@@ -387,14 +530,11 @@ export default function IntelligencePage() {
           )}
         </SectionCard>
 
-        {/* 4. Micro-Market Intelligence */}
         <SectionCard icon={MapPin} title="4. Bengaluru Micro-Market Intelligence">
           {brief?.bengaluruMicroMarketIntelligence?.length > 0 ? (
             <ul className="space-y-2">
               {brief.bengaluruMicroMarketIntelligence.map((item, i) => (
-                <li key={i} className="text-xs text-gray-700 border-l-2 border-primary-200 pl-3">
-                  {item}
-                </li>
+                <li key={i} className="text-xs text-gray-700 border-l-2 border-primary-200 pl-3">{item}</li>
               ))}
             </ul>
           ) : (
@@ -405,9 +545,39 @@ export default function IntelligencePage() {
         </SectionCard>
       </div>
 
-      {/* 5. Demand Heatmap */}
+      {/* Section 5: Micro-Market Benchmark Summary */}
+      <SectionCard icon={DollarSign} title="5. Micro-Market Benchmark Summary — Bengaluru (2025–2026)">
+        {bmLoading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+            <RefreshCw size={14} className="animate-spin" /> Loading benchmarks…
+          </div>
+        ) : benchmarks?.length > 0 ? (
+          <BenchmarksTable rows={benchmarks} />
+        ) : (
+          <p className="text-sm text-gray-500">
+            Run the migration <code className="text-xs bg-gray-100 px-1 rounded">20260404_market_data.sql</code> in Supabase to load benchmark data.
+          </p>
+        )}
+      </SectionCard>
+
+      {/* Section 6: Market Transaction Flow */}
+      <SectionCard icon={ArrowUpRight} title="6. Market Transaction Flow — Bengaluru (FY2025–FY2027)">
+        {txLoading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+            <RefreshCw size={14} className="animate-spin" /> Loading transactions…
+          </div>
+        ) : transactions?.length > 0 ? (
+          <TransactionTable rows={transactions} />
+        ) : (
+          <p className="text-sm text-gray-500">
+            Run the migration <code className="text-xs bg-gray-100 px-1 rounded">20260404_market_data.sql</code> in Supabase to load transaction data.
+          </p>
+        )}
+      </SectionCard>
+
+      {/* Section 7: Demand Heatmap (when available) */}
       {brief?.bengaluruDemandHeatmap?.length > 0 && (
-        <SectionCard icon={BarChart2} title="5. Demand Heatmap — Bengaluru Micro-Markets">
+        <SectionCard icon={BarChart2} title="7. Demand Heatmap — Bengaluru Micro-Markets">
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
@@ -437,9 +607,9 @@ export default function IntelligencePage() {
         </SectionCard>
       )}
 
+      {/* Row 3: Slowdown Indicators + Strategic Takeaways */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* 6. Slowdown Indicators */}
-        <SectionCard icon={TrendingDown} title="6. Demand Slowdown Indicators">
+        <SectionCard icon={TrendingDown} title="8. Demand Slowdown Indicators">
           {brief?.demandSlowdownIndicators?.length > 0 ? (
             <ul className="space-y-2">
               {brief.demandSlowdownIndicators.map((item, i) => (
@@ -454,8 +624,7 @@ export default function IntelligencePage() {
           )}
         </SectionCard>
 
-        {/* 7. Strategic Takeaways */}
-        <SectionCard icon={Lightbulb} title="7. Strategic Takeaways">
+        <SectionCard icon={Lightbulb} title="9. Strategic Takeaways">
           {brief?.strategicTakeaways?.length > 0 ? (
             <ul className="space-y-2">
               {brief.strategicTakeaways.map((item, i) => (
@@ -471,13 +640,13 @@ export default function IntelligencePage() {
         </SectionCard>
       </div>
 
-      {/* 8. Bottom Line */}
+      {/* Section 10: Bottom Line */}
       {brief?.bottomLine && (
         <div className="rounded-xl border border-slate-200 bg-slate-900 px-6 py-4">
           <div className="flex items-start gap-3">
             <Brain size={18} className="text-primary-400 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">8. Bottom Line</p>
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">10. Bottom Line</p>
               <p className="text-sm text-white">{brief.bottomLine}</p>
             </div>
           </div>
@@ -492,8 +661,9 @@ export default function IntelligencePage() {
       )}
 
       <p className="text-xs text-gray-400 text-center pb-4">
-        Brief generated {today} · Source:{' '}
-        {notConfigured ? 'internal pipeline only' : 'verified external feeds + internal pipeline'}
+        Brief generated {today} · Internal pipeline data
+        {transactions?.length > 0 ? ` · ${transactions.length} verified market transactions` : ''}
+        {benchmarks?.length > 0 ? ` · ${benchmarks.length} micro-market benchmarks` : ''}
         {brief?.claudeBrief ? ' · AI-enhanced' : ''}
       </p>
     </div>

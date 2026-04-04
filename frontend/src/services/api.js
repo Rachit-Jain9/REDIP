@@ -128,9 +128,11 @@ export const dashboardAPI = {
 
 // Intelligence
 export const intelligenceAPI = {
-  getDailyBrief: (date) => api.get('/intelligence/daily-brief', { params: { date } }),
-  getMarketNotes: () => api.get('/intelligence/market-notes'),
-  saveMarketNotes: (section, items) => api.put('/intelligence/market-notes', { section, items }),
+  getDailyBrief:           (date)   => api.get('/intelligence/daily-brief', { params: { date } }),
+  getMarketNotes:          ()       => api.get('/intelligence/market-notes'),
+  saveMarketNotes:         (section, items) => api.put('/intelligence/market-notes', { section, items }),
+  getMarketTransactions:   (params) => api.get('/intelligence/market-transactions', { params }),
+  getMicroMarketBenchmarks:(params) => api.get('/intelligence/micro-market-benchmarks', { params }),
 };
 
 // Exports

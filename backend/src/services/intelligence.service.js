@@ -290,8 +290,38 @@ const saveMarketNotes = async (section, items, userId) => {
   return cleaned;
 };
 
+const getMarketTransactions = async ({ city = 'Bengaluru', fy, quarter, dealType } = {}) => {
+  const conditions = [`LOWER(city) = LOWER($1)`];
+  const values = [city];
+  let p = 2;
+
+  if (fy) { conditions.push(`fiscal_year = $${p++}`); values.push(fy); }
+  if (quarter) { conditions.push(`quarter = $${p++}`); values.push(quarter); }
+  if (dealType) { conditions.push(`LOWER(deal_type) = LOWER($${p++})`); values.push(dealType); }
+
+  const result = await query(
+    `SELECT * FROM market_transactions
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY fiscal_year DESC, quarter DESC, quantum_inr_mn DESC NULLS LAST`,
+    values
+  );
+  return result.rows;
+};
+
+const getMicroMarketBenchmarks = async ({ city = 'Bengaluru' } = {}) => {
+  const result = await query(
+    `SELECT * FROM micro_market_benchmarks
+     WHERE LOWER(city) = LOWER($1)
+     ORDER BY avg_price_max_per_sqft DESC NULLS LAST`,
+    [city]
+  );
+  return result.rows;
+};
+
 module.exports = {
   getDailyBrief,
   getMarketNotes,
   saveMarketNotes,
+  getMarketTransactions,
+  getMicroMarketBenchmarks,
 };

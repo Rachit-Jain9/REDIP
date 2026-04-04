@@ -69,4 +69,29 @@ router.put(
   }
 );
 
+// GET /intelligence/market-transactions
+router.get('/market-transactions', authenticate, async (req, res, next) => {
+  try {
+    const data = await intelligenceService.getMarketTransactions({
+      city:     req.query.city,
+      fy:       req.query.fy,
+      quarter:  req.query.quarter,
+      dealType: req.query.dealType,
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /intelligence/micro-market-benchmarks
+router.get('/micro-market-benchmarks', authenticate, async (req, res, next) => {
+  try {
+    const data = await intelligenceService.getMicroMarketBenchmarks({ city: req.query.city });
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

@@ -24,3 +24,19 @@ export function useSaveMarketNotes() {
     },
   });
 }
+
+export function useMarketTransactions(params) {
+  return useQuery({
+    queryKey: ['intelligence', 'market-transactions', params],
+    queryFn: () => intelligenceAPI.getMarketTransactions(params).then((r) => r.data.data),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useMicroMarketBenchmarks(params) {
+  return useQuery({
+    queryKey: ['intelligence', 'micro-market-benchmarks', params],
+    queryFn: () => intelligenceAPI.getMicroMarketBenchmarks(params).then((r) => r.data.data),
+    staleTime: 5 * 60 * 1000,
+  });
+}
