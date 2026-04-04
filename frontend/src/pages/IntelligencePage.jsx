@@ -575,35 +575,58 @@ export default function IntelligencePage() {
         )}
       </SectionCard>
 
-      {/* Section 7: Demand Heatmap (when available) */}
+      {/* Section 7: Demand Heatmap */}
       {brief?.bengaluruDemandHeatmap?.length > 0 && (
         <SectionCard icon={BarChart2} title="7. Demand Heatmap — Bengaluru Micro-Markets">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
+          <div className="overflow-x-auto -mx-5">
+            <table className="w-full text-xs border-collapse min-w-[700px]">
               <thead>
-                <tr className="border-b border-gray-200">
+                <tr className="border-b-2 border-gray-200 bg-gray-50">
                   <th className="text-left py-2 px-3 font-semibold text-gray-600">Micro-Market</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">Absorption</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">Pricing Trend</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">Inventory</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">Demand Signal</th>
-                  <th className="text-left py-2 px-3 font-semibold text-gray-600">Insight</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-600 whitespace-nowrap">Avg Price (₹/sqft)</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-600 whitespace-nowrap">YoY Growth</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-600 whitespace-nowrap">Demand Signal</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-600">Anchor Hub</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-600 max-w-[220px]">Insight</th>
                 </tr>
               </thead>
               <tbody>
-                {brief.bengaluruDemandHeatmap.map((row, i) => (
-                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-2 px-3 font-medium text-gray-800">{row.microMarket}</td>
-                    <td className="py-2 px-3 text-gray-500">{row.absorption}</td>
-                    <td className="py-2 px-3 text-gray-500">{row.pricingTrend}</td>
-                    <td className="py-2 px-3 text-gray-500">{row.inventory}</td>
-                    <td className="py-2 px-3 text-gray-500">{row.demandSignal}</td>
-                    <td className="py-2 px-3 text-gray-500 max-w-xs">{row.insight}</td>
-                  </tr>
-                ))}
+                {brief.bengaluruDemandHeatmap.map((row, i) => {
+                  const signalColor =
+                    row.demandSignal === 'Strong'          ? 'bg-emerald-100 text-emerald-700' :
+                    row.demandSignal === 'Moderate-High'   ? 'bg-blue-100 text-blue-700' :
+                    row.demandSignal === 'Moderate'        ? 'bg-amber-100 text-amber-700' :
+                    row.demandSignal === 'Soft'            ? 'bg-red-100 text-red-700' :
+                                                             'bg-gray-100 text-gray-500';
+                  const trendColor = row.pricingTrend && row.pricingTrend !== 'Not available'
+                    ? 'text-emerald-600 font-medium' : 'text-gray-400';
+                  return (
+                    <tr key={i} className="border-b border-gray-50 hover:bg-slate-50 transition-colors">
+                      <td className="py-2.5 px-3 font-medium text-gray-900">{row.microMarket}</td>
+                      <td className="py-2.5 px-3 font-mono text-gray-800 whitespace-nowrap">
+                        {row.avgPriceRange || <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`py-2.5 px-3 whitespace-nowrap ${trendColor}`}>
+                        {row.pricingTrend || '—'}
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${signalColor}`}>
+                          {row.demandSignal}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-gray-500">{row.anchorHub || '—'}</td>
+                      <td className="py-2.5 px-3 text-gray-500 max-w-[220px]">
+                        <span className="line-clamp-2">{row.insight}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          <p className="mt-3 text-xs text-gray-400">
+            Pricing data from verified internal benchmarks (2025–2026). Absorption &amp; inventory data awaiting verified external feed.
+          </p>
         </SectionCard>
       )}
 

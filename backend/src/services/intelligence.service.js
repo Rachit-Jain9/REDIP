@@ -32,12 +32,47 @@ const VERIFIED_SOURCE_REQUIREMENTS = [
 const buildUnavailableHeatmap = () =>
   HEATMAP_MARKETS.map((market) => ({
     microMarket: market,
-    absorption: 'Not available',
+    absorption: 'Awaiting verified feed',
     pricingTrend: 'Not available',
-    inventory: 'Not available',
+    inventory: 'Awaiting verified feed',
     demandSignal: 'Awaiting verified feed',
     insight: 'No verified external data source is configured for this micro-market yet.',
   }));
+
+const buildHeatmapFromBenchmarks = (benchmarks) => {
+  if (!benchmarks || benchmarks.length === 0) return buildUnavailableHeatmap();
+  return benchmarks.map((b) => {
+    const growthAvg = ((Number(b.yoy_growth_min_pct) || 0) + (Number(b.yoy_growth_max_pct) || 0)) / 2;
+    const demandSignal =
+      growthAvg >= 10 ? 'Strong' :
+      growthAvg >= 7  ? 'Moderate-High' :
+      growthAvg >= 5  ? 'Moderate' : 'Soft';
+    const minPr = Number(b.avg_price_min_per_sqft) || 0;
+    const maxPr = Number(b.avg_price_max_per_sqft) || 0;
+    return {
+      microMarket: b.micro_market,
+      absorption: 'Awaiting verified feed',
+      pricingTrend: b.yoy_growth_min_pct != null
+        ? `+${b.yoy_growth_min_pct}–${b.yoy_growth_max_pct}% YoY`
+        : 'Not available',
+      inventory: 'Awaiting verified feed',
+      demandSignal,
+      avgPriceRange: minPr && maxPr
+        ? `₹${minPr.toLocaleString('en-IN')}–${maxPr.toLocaleString('en-IN')}/sqft`
+        : null,
+      anchorHub: b.anchor_hub || null,
+      dataSource: `Verified internal benchmarks · ${b.data_period || '2025-2026'}`,
+      insight: [
+        b.anchor_hub ? `${b.anchor_hub} corridor.` : '',
+        minPr && maxPr ? `Avg pricing ₹${(minPr / 1000).toFixed(0)}K–${(maxPr / 1000).toFixed(0)}K/sqft.` : '',
+        b.yoy_growth_min_pct != null
+          ? `${b.yoy_growth_min_pct}–${b.yoy_growth_max_pct}% YoY price appreciation (2025-2026).`
+          : '',
+        'Absorption & inventory data awaiting verified external feed.',
+      ].filter(Boolean).join(' '),
+    };
+  });
+};
 
 const getNotesMap = async () => {
   const result = await query('SELECT section, items FROM market_notes');
@@ -62,44 +97,64 @@ const getAnthropicClient = () => {
 };
 
 /**
- * Generate a Claude-powered intelligence brief from structured deal/pipeline data.
- * Contract (150-200 words max, buy-side, no hallucinated externals):
- *   1. Deal of the Day
- *   2. Market Signals
- *   3. Risk Signals
- *   4. Strategic Takeaways
+ * Generate a Claude-powered intelligence brief.
+ * Cross-references internal pipeline against market benchmarks, verified transactions, and comps.
+ * Sections: Deal of the Day, Market Signals, Risk Signals, Strategic Takeaways
  */
-const generateClaudeBrief = async (dealData, pipelineStats, notes) => {
+const generateClaudeBrief = async (dealData, pipelineStats, notes, benchmarks, recentTx, topComps) => {
   const client = getAnthropicClient();
   if (!client) return null;
 
   const hasNotes = notes.micro_market?.length || notes.slowdown?.length || notes.strategic?.length;
 
-  const systemPrompt = `You are a buy-side real estate investment analyst for REDIP, a Bengaluru-focused real estate development intelligence platform.
-Generate a concise intelligence brief from the internal pipeline data provided.
+  const systemPrompt = `You are a senior buy-side real estate investment analyst at REDIP, a Bengaluru-focused real estate development intelligence platform. You report directly to the Investment Committee.
+
+Your job is to generate a precise, data-driven ANALYSIS — not a summary. Cross-reference everything provided.
 
 Rules:
-- 150-200 words maximum total
-- No fluff, no generic statements
-- No assumptions beyond the provided data
-- Do not calculate IRR or other financials not already present
-- Focus on decision quality
-- Tone: professional, direct, analytical, buy-side
-- Return exactly 4 sections: Deal of the Day, Market Signals, Risk Signals, Strategic Takeaways
-- Format as plain text paragraphs, no markdown`;
+- 220–280 words total, exactly 4 sections: Deal of the Day, Market Signals, Risk Signals, Strategic Takeaways
+- Every claim must use specific numbers from the provided data — no generic statements
+- Cross-reference internal pipeline deals against micro-market benchmarks: which deal is in the best-positioned micro-market? Which has pricing tailwind?
+- Compare internal deal pricing assumptions against verified comp benchmarks where possible
+- Identify which micro-markets have the strongest momentum (high YoY growth) vs. which appear soft
+- Flag real risks: stale deals, IRR outliers vs. market comps, micro-markets with no internal pipeline coverage, concentration risk
+- Reference actual company names, micro-markets, and specific ₹ figures — never use placeholders
+- Tone: direct, institutional, IC-ready — like a GP briefing a Limited Partner
+- No fluff. No markdown. Plain text paragraphs only. No bullet points.`;
 
-  const userContent = JSON.stringify({
-    deals: dealData,
-    pipeline: pipelineStats,
+  const payload = {
+    internalPipeline: dealData,
+    pipelineStats,
     adminNotes: hasNotes ? notes : null,
-  }, null, 2);
+    microMarketBenchmarks: (benchmarks || []).map((b) => ({
+      microMarket: b.micro_market,
+      priceRangePerSqft: `₹${b.avg_price_min_per_sqft}–${b.avg_price_max_per_sqft}`,
+      yoyGrowthPct: `${b.yoy_growth_min_pct}–${b.yoy_growth_max_pct}%`,
+      anchorHub: b.anchor_hub,
+    })),
+    recentMarketTransactions: (recentTx || []).slice(0, 8).map((t) => ({
+      period: `${t.fiscal_year} ${t.quarter}`,
+      type: t.deal_type,
+      buyer: t.buyer,
+      quantumCr: t.quantum_inr_mn ? (t.quantum_inr_mn / 100).toFixed(0) + ' Cr' : null,
+      locality: t.locality,
+      landAcres: t.land_size_acres,
+    })),
+    topComps: (topComps || []).slice(0, 8).map((c) => ({
+      project: c.project_name,
+      locality: c.locality,
+      ratePerSqft: c.rate_per_sqft,
+      bhkConfig: c.bhk_config,
+      units: c.total_units,
+    })),
+  };
 
   try {
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 400,
+      max_tokens: 700,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userContent }],
+      messages: [{ role: 'user', content: JSON.stringify(payload, null, 2) }],
     });
 
     return message.content[0]?.text || null;
@@ -112,9 +167,9 @@ Rules:
 // ─── BUILD BRIEF ─────────────────────────────────────────────────────────────
 
 const buildBrief = async (briefDate) => {
-  const [topDealResult, developmentsResult, marketSignalResult, notes] = await Promise.all([
+  const [topDealResult, developmentsResult, marketSignalResult, benchmarksResult, recentTxResult, topCompsResult, notes] = await Promise.all([
     query(
-      `SELECT d.id, d.name, d.stage, d.priority, p.city, p.property_type,
+      `SELECT d.id, d.name, d.stage, d.priority, p.city, p.locality, p.property_type,
         f.irr_pct, f.total_revenue_cr, f.npv_cr, f.asset_class
        FROM deals d
        LEFT JOIN properties p ON d.property_id = p.id
@@ -144,6 +199,22 @@ const buildBrief = async (briefDate) => {
        FROM deals d
        LEFT JOIN financials f ON d.id = f.deal_id`
     ),
+    query(
+      `SELECT micro_market, avg_price_min_per_sqft, avg_price_max_per_sqft,
+              yoy_growth_min_pct, yoy_growth_max_pct, anchor_hub, data_period
+       FROM micro_market_benchmarks WHERE LOWER(city) = 'bengaluru'
+       ORDER BY avg_price_max_per_sqft DESC NULLS LAST`
+    ).catch(() => ({ rows: [] })),
+    query(
+      `SELECT fiscal_year, quarter, deal_type, buyer, quantum_inr_mn, locality, land_size_acres
+       FROM market_transactions WHERE LOWER(city) = 'bengaluru'
+       ORDER BY fiscal_year DESC, quarter DESC LIMIT 10`
+    ).catch(() => ({ rows: [] })),
+    query(
+      `SELECT project_name, locality, rate_per_sqft, bhk_config, total_units
+       FROM comps WHERE is_verified = TRUE AND LOWER(city) ILIKE '%bengaluru%'
+       ORDER BY rate_per_sqft DESC NULLS LAST LIMIT 8`
+    ).catch(() => ({ rows: [] })),
     getNotesMap(),
   ]);
 
@@ -167,6 +238,7 @@ const buildBrief = async (briefDate) => {
       allTopDeals.map((d) => ({
         name: d.name,
         city: d.city,
+        locality: d.locality,
         stage: d.stage,
         priority: d.priority,
         assetClass: d.asset_class,
@@ -176,6 +248,9 @@ const buildBrief = async (briefDate) => {
       })),
       { liveDeals, deadDeals, avgIrrPct: avgIrr, totalPipelineCr },
       notes,
+      benchmarksResult.rows,
+      recentTxResult.rows,
+      topCompsResult.rows,
     );
   }
 
@@ -225,7 +300,7 @@ const buildBrief = async (briefDate) => {
       sourceType: 'internal_pipeline_only',
     },
     bengaluruMicroMarketIntelligence: microMarketNotes,
-    bengaluruDemandHeatmap: buildUnavailableHeatmap(),
+    bengaluruDemandHeatmap: buildHeatmapFromBenchmarks(benchmarksResult.rows),
     demandSlowdownIndicators: slowdownNotes.length > 0
       ? slowdownNotes
       : [
